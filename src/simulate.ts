@@ -53,8 +53,9 @@ export function step(world: World, program: Program, dt: number): void {
       }
     }
 
-    // 拠点の近くにいる間は燃料が全回復する（補給ステーション）
-    if (nearestWithin(boid.pos, world.bases, PHYSICS.interactRadius)) {
+    // 拠点の近くにいる間は燃料が全回復する（補給ステーション）。
+    // 燃料無制限のboid（Infinity）はそもそも対象外。
+    if (Number.isFinite(boid.fuel) && nearestWithin(boid.pos, world.bases, PHYSICS.interactRadius)) {
       boid.fuel = PHYSICS.maxFuel;
     }
   });

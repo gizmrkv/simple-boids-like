@@ -46,14 +46,16 @@ export interface World {
 let nextId = 0;
 const freshId = (): number => nextId++;
 
-export function createBoid(pos: Vec2, vel: Vec2 = zero()): Boid {
+// 既定は燃料無制限。行動範囲を制限したいシナリオ（中継リレー輸送）だけ
+// PHYSICS.maxFuel などの有限値を明示的に渡す。
+export function createBoid(pos: Vec2, vel: Vec2 = zero(), fuel: number = Infinity): Boid {
   return {
     id: freshId(),
     pos,
     vel,
     memory: new Array(MEMORY_SIZE).fill(0),
     cargo: 0,
-    fuel: PHYSICS.maxFuel,
+    fuel,
   };
 }
 

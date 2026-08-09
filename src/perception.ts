@@ -24,13 +24,12 @@ export interface SelfView {
 
 export interface WorldView {
   tick: number;
-  dt: number; // 1tickあたりの経過時間（dead reckoningなど自前の積分に使える）
   width: number;
   height: number;
 }
 
 export interface Action {
-  accel: Vec2; // 望みの加速度。PHYSICS.maxAccel でクランプされる
+  vel: Vec2; // 次tickの速度ベクトル。大きさはPHYSICS.maxSpeedでクランプされる
   harvest?: boolean; // interactRadius内の資源から採取を試みる
   drop?: boolean; // interactRadius内の拠点へ搬入を試みる
   handoff?: boolean; // interactRadius内の空荷の他boidへ荷物を手渡す（リレー用）
@@ -42,8 +41,8 @@ export function buildSelfView(boid: Boid): SelfView {
   return { id: boid.id, vel: boid.vel, cargo: boid.cargo, fuel: boid.fuel, memory: [...boid.memory] };
 }
 
-export function buildWorldView(world: World, dt: number): WorldView {
-  return { tick: world.tick, dt, width: world.width, height: world.height };
+export function buildWorldView(world: World): WorldView {
+  return { tick: world.tick, width: world.width, height: world.height };
 }
 
 export function buildNeighbors(boid: Boid, world: World): NeighborView[] {

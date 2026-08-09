@@ -17,9 +17,9 @@ const FUEL_RETURN_RATIO = 0.5; // 残燃料がこの割合を切ったら復路�
  * 検証中の仮説であり、これだけで安定して勝利条件を満たすかは未確認。
  * ここから実際にプレイして詰まった箇所を直す想定のスタート地点。
  */
-export const relayProgram: Program = (self, neighbors, world) => {
-  self.memory[0] += self.vel.x * world.dt;
-  self.memory[1] += self.vel.y * world.dt;
+export const relayProgram: Program = (self, neighbors) => {
+  self.memory[0] += self.vel.x;
+  self.memory[1] += self.vel.y;
   const homeDir = normalize(scale({ x: self.memory[0], y: self.memory[1] }, -1));
 
   const resources = neighbors.filter((n) => n.kind === 'resource' && (n.amount ?? 0) > 0);
@@ -65,5 +65,5 @@ export const relayProgram: Program = (self, neighbors, world) => {
     self.memory[1] = 0;
   }
 
-  return { accel: scale(steer, PHYSICS.maxAccel), harvest, drop, handoff };
+  return { vel: scale(steer, PHYSICS.maxSpeed), harvest, drop, handoff };
 };

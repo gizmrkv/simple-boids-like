@@ -1,5 +1,5 @@
 import type { Program } from '../perception';
-import { add, length, normalize, scale, zero } from '../vec2';
+import { add, length, limit, normalize, scale, zero } from '../vec2';
 import { PHYSICS } from '../world';
 import { closest } from './util';
 
@@ -7,12 +7,12 @@ const SEPARATION_RADIUS = 15;
 
 /**
  * 資源を見つけて拠点まで運ぶ。memory[0..1] に拠点からの推定変位を
- * dead reckoning（自分の速度の積分）で記録し、拠点が視界外でも
+ * dead reckoning（自分の速度の積算）で記録し、拠点が視界外でも
  * 戻る方向を推定できるようにしている。
  */
-export const gatherProgram: Program = (self, neighbors, world) => {
-  self.memory[0] += self.vel.x * world.dt;
-  self.memory[1] += self.vel.y * world.dt;
+export const gatherProgram: Program = (self, neighbors) => {
+  self.memory[0] += self.vel.x;
+  self.memory[1] += self.vel.y;
 
   const resources = neighbors.filter((n) => n.kind === 'resource' && (n.amount ?? 0) > 0);
   const bases = neighbors.filter((n) => n.kind === 'base');
@@ -43,10 +43,10 @@ export const gatherProgram: Program = (self, neighbors, world) => {
     steer = normalize(res.relPos);
   } else {
     // 何も見えていなければ、自分のIDに応じた固定方向へ直進して探索する
-    steer = length(self.vel) > 1 ? normalize(self.vel) : { x: Math.cos(self.id), y: Math.sin(self.id) };
+    steer = length(self.vel) > PHYSICS.maxSpeed * 0.1 ? normalize(self.vel) : { x: Math.cos(self.id), y: Math.sin(self.id) };
   }
 
-  const accel = add(scale(steer, PHYSICS.maxAccel), scale(separation, PHYSICS.maxAccel * 0.6));
+  const vel = limit(add(scale(steer, PHYSICS.maxSpeed), scale(separation, PHYSICS.maxSpeed * 0.6)), PHYSICS.maxSpeed);
   const drop = self.cargo > 0 && nearestBaseDist < PHYSICS.interactRadius;
   if (drop) {
     self.memory[0] = 0;
@@ -54,7 +54,7 @@ export const gatherProgram: Program = (self, neighbors, world) => {
   }
 
   return {
-    accel,
+    vel,
     harvest: self.cargo === 0 && nearestResDist < PHYSICS.interactRadius,
     drop,
   };

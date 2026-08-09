@@ -1,15 +1,15 @@
-import { add, length, limit, scale, sub } from './vec2';
+import { add, length, limit, sub } from './vec2';
 import type { Action, Program } from './perception';
 import { buildNeighbors, buildSelfView, buildWorldView } from './perception';
 import type { World } from './world';
 import { PHYSICS } from './world';
 
-export function step(world: World, program: Program, dt: number): void {
+export function step(world: World, program: Program): void {
   // 1. 現在の状態を元に、全boid分のactionを先に集める（順序依存を避ける）
   const actions: Action[] = world.boids.map((boid) => {
     const self = buildSelfView(boid);
     const neighbors = buildNeighbors(boid, world);
-    const worldView = buildWorldView(world, dt);
+    const worldView = buildWorldView(world);
     const action = program(self, neighbors, worldView);
     boid.memory = self.memory; // 書き換えられたメモリを書き戻す
     return action;
@@ -19,12 +19,13 @@ export function step(world: World, program: Program, dt: number): void {
   world.boids.forEach((boid, i) => {
     const action = actions[i];
 
-    // 燃料切れの間は推進できず、既存の速度で漂うだけになる
-    const accel = boid.fuel > 0 ? limit(action.accel, PHYSICS.maxAccel) : { x: 0, y: 0 };
-    boid.vel = limit(add(boid.vel, scale(accel, dt)), PHYSICS.maxSpeed);
+    // 燃料切れの間は速度を変更できず、直前の速度のまま慣性で進み続ける
+    if (boid.fuel > 0) {
+      boid.vel = limit(action.vel, PHYSICS.maxSpeed);
+    }
 
     const prevPos = boid.pos;
-    boid.pos = add(boid.pos, scale(boid.vel, dt));
+    boid.pos = add(boid.pos, boid.vel); // 次tickの位置 = 現在位置 + 速度
     bounceOffWalls(boid, world);
     boid.fuel = Math.max(0, boid.fuel - length(sub(boid.pos, prevPos)) * PHYSICS.fuelBurnRate);
 

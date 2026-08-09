@@ -8,7 +8,6 @@ import { step } from './simulate';
 import type { World } from './world';
 
 const SCENARIOS: Scenario[] = [gatherScenario, formationScenario, relayScenario];
-const DT = 1 / 60;
 
 const controls = document.querySelector<HTMLDivElement>('#controls')!;
 const statusEl = document.querySelector<HTMLDivElement>('#status')!;
@@ -42,7 +41,7 @@ function renderButtons(): void {
 }
 
 function loop(): void {
-  step(world, current.program, DT);
+  step(world, current.program);
   render(ctx, world);
   const win = current.checkWin(world);
   statusEl.textContent = `${current.name}\n${current.description}\n${win.won ? '✅ ' : ''}${win.detail}`;

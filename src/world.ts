@@ -5,8 +5,7 @@ import { zero } from './vec2';
 export const MEMORY_SIZE = 4;
 
 export const PHYSICS = {
-  maxSpeed: 40, // units/sec
-  maxAccel: 60, // units/sec^2
+  maxSpeed: 1, // 1tickで動ける距離の上限（速度ベクトルの大きさの上限）
   viewRadius: 60, // 知覚できる半径
   interactRadius: 8, // 資源採取・拠点搬入・boid間の受け渡しができる半径
   maxFuel: 260, // 移動できる総距離の上限。拠点に近づくと全回復する
@@ -16,10 +15,10 @@ export const PHYSICS = {
 export interface Boid {
   id: number;
   pos: Vec2; // 絶対位置（perception層の外には渡さない）
-  vel: Vec2; // 絶対速度
+  vel: Vec2; // 絶対速度。次tickの位置は pos + vel で決まる
   memory: number[]; // 内部メモリ、長さ MEMORY_SIZE
   cargo: number; // 運搬中の資源量（0 or 1）
-  fuel: number; // 残燃料。0になると加速できなくなる
+  fuel: number; // 残燃料。0になると速度を変更できなくなる
 }
 
 export interface ResourceNode {

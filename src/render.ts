@@ -1,4 +1,5 @@
 import type { World } from './world';
+import { PHYSICS } from './world';
 
 export function render(ctx: CanvasRenderingContext2D, world: World): void {
   ctx.clearRect(0, 0, world.width, world.height);
@@ -31,6 +32,11 @@ export function render(ctx: CanvasRenderingContext2D, world: World): void {
     ctx.closePath();
     ctx.fillStyle = boid.cargo > 0 ? '#ffd43b' : '#e9ecef';
     ctx.fill();
+    if (boid.fuel < PHYSICS.maxFuel * 0.2) {
+      ctx.strokeStyle = '#ff6b6b';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
     ctx.restore();
   }
 }

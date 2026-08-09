@@ -9,7 +9,7 @@ export function step(world: World, program: Program, dt: number): void {
   const actions: Action[] = world.boids.map((boid) => {
     const self = buildSelfView(boid);
     const neighbors = buildNeighbors(boid, world);
-    const worldView = buildWorldView(world);
+    const worldView = buildWorldView(world, dt);
     const action = program(self, neighbors, worldView);
     boid.memory = self.memory; // 書き換えられたメモリを書き戻す
     return action;
@@ -19,10 +19,14 @@ export function step(world: World, program: Program, dt: number): void {
   world.boids.forEach((boid, i) => {
     const action = actions[i];
 
-    const accel = limit(action.accel, PHYSICS.maxAccel);
+    // 燃料切れの間は推進できず、既存の速度で漂うだけになる
+    const accel = boid.fuel > 0 ? limit(action.accel, PHYSICS.maxAccel) : { x: 0, y: 0 };
     boid.vel = limit(add(boid.vel, scale(accel, dt)), PHYSICS.maxSpeed);
+
+    const prevPos = boid.pos;
     boid.pos = add(boid.pos, scale(boid.vel, dt));
     bounceOffWalls(boid, world);
+    boid.fuel = Math.max(0, boid.fuel - length(sub(boid.pos, prevPos)) * PHYSICS.fuelBurnRate);
 
     if (action.harvest && boid.cargo === 0) {
       const target = nearestWithin(boid.pos, world.resources.filter((r) => r.amount > 0), PHYSICS.interactRadius);
@@ -38,6 +42,20 @@ export function step(world: World, program: Program, dt: number): void {
         target.stored += boid.cargo;
         boid.cargo = 0;
       }
+    }
+
+    if (action.handoff && boid.cargo > 0) {
+      const others = world.boids.filter((b) => b.id !== boid.id && b.cargo === 0);
+      const target = nearestWithin(boid.pos, others, PHYSICS.interactRadius);
+      if (target) {
+        target.cargo += boid.cargo;
+        boid.cargo = 0;
+      }
+    }
+
+    // 拠点の近くにいる間は燃料が全回復する（補給ステーション）
+    if (nearestWithin(boid.pos, world.bases, PHYSICS.interactRadius)) {
+      boid.fuel = PHYSICS.maxFuel;
     }
   });
 

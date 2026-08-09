@@ -10,17 +10,21 @@ export interface NeighborView {
   relPos: Vec2; // 知覚元boidを原点とした相対位置
   relVel: Vec2; // 相対速度（資源・拠点は静止しているので -selfVel）
   amount?: number; // resource: 残量 / base: 貯蔵量
+  cargo?: number; // kind === 'boid' のときだけ、荷物を運んでいるか（外から見てわかる情報として）
   memory?: readonly number[]; // kind === 'boid' のときだけ、読み取り専用スナップショット
 }
 
 export interface SelfView {
+  id: number; // 自分自身のID（役割分担などに使える。絶対位置の情報は含まない）
   vel: Readonly<Vec2>; // 自分の絶対速度（絶対位置は渡さない）
   cargo: number;
+  fuel: number; // 残燃料
   memory: number[]; // 書き換え可能なコピー。simulateがtick後にboidへ書き戻す
 }
 
 export interface WorldView {
   tick: number;
+  dt: number; // 1tickあたりの経過時間（dead reckoningなど自前の積分に使える）
   width: number;
   height: number;
 }
@@ -29,16 +33,17 @@ export interface Action {
   accel: Vec2; // 望みの加速度。PHYSICS.maxAccel でクランプされる
   harvest?: boolean; // interactRadius内の資源から採取を試みる
   drop?: boolean; // interactRadius内の拠点へ搬入を試みる
+  handoff?: boolean; // interactRadius内の空荷の他boidへ荷物を手渡す（リレー用）
 }
 
 export type Program = (self: SelfView, neighbors: NeighborView[], world: WorldView) => Action;
 
 export function buildSelfView(boid: Boid): SelfView {
-  return { vel: boid.vel, cargo: boid.cargo, memory: [...boid.memory] };
+  return { id: boid.id, vel: boid.vel, cargo: boid.cargo, fuel: boid.fuel, memory: [...boid.memory] };
 }
 
-export function buildWorldView(world: World): WorldView {
-  return { tick: world.tick, width: world.width, height: world.height };
+export function buildWorldView(world: World, dt: number): WorldView {
+  return { tick: world.tick, dt, width: world.width, height: world.height };
 }
 
 export function buildNeighbors(boid: Boid, world: World): NeighborView[] {
@@ -53,6 +58,7 @@ export function buildNeighbors(boid: Boid, world: World): NeighborView[] {
       kind: 'boid',
       relPos,
       relVel: sub(other.vel, boid.vel),
+      cargo: other.cargo,
       memory: other.memory,
     });
   }

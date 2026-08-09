@@ -8,7 +8,9 @@ export const PHYSICS = {
   maxSpeed: 40, // units/sec
   maxAccel: 60, // units/sec^2
   viewRadius: 60, // 知覚できる半径
-  interactRadius: 8, // 資源採取・拠点搬入ができる半径
+  interactRadius: 8, // 資源採取・拠点搬入・boid間の受け渡しができる半径
+  maxFuel: 260, // 移動できる総距離の上限。拠点に近づくと全回復する
+  fuelBurnRate: 1, // 単位距離あたりの燃料消費量
 };
 
 export interface Boid {
@@ -17,6 +19,7 @@ export interface Boid {
   vel: Vec2; // 絶対速度
   memory: number[]; // 内部メモリ、長さ MEMORY_SIZE
   cargo: number; // 運搬中の資源量（0 or 1）
+  fuel: number; // 残燃料。0になると加速できなくなる
 }
 
 export interface ResourceNode {
@@ -50,6 +53,7 @@ export function createBoid(pos: Vec2, vel: Vec2 = zero()): Boid {
     vel,
     memory: new Array(MEMORY_SIZE).fill(0),
     cargo: 0,
+    fuel: PHYSICS.maxFuel,
   };
 }
 

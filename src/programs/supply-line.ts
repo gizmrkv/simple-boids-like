@@ -1,13 +1,17 @@
 import type { Program } from '../perception';
 import { length, normalize, scale } from '../vec2';
 import { PHYSICS } from '../world';
-import { closest } from './util';
+import { closest, isLocalMax } from './util';
 
 // 資源は拠点からほぼ真東にある、というこのシナリオ固有のレイアウト知識を
 // 定数として埋め込んでいる（relay.ts/ladder.tsと同じ考え方）。
 const EXPLORE_DIR = { x: 1, y: 0 };
 const RETURN_DIR = { x: -1, y: 0 };
-const BUILD_MARGIN = 0.9; // maxLineLengthのこの割合まで離れたら建設を試み始める（ladder.tsと同じ）
+// maxLineLengthのこの割合まで離れたら建設を試み始める。0.75の理由はladder.ts
+// 参照（dead reckoningの系統的なズレ＋リーダー選出の据え置きで立ち往生する
+// ケースがあったため、安全マージンを広げてある）。
+const BUILD_MARGIN = 0.75;
+const INTENT_SLOT = 2; // memory[2]: 「今建設したい」という意思表示（1=あり/0=なし、ladder.tsと同じ）
 
 /**
  * ladder.tsの「アンカーから離れたら補給所を建設しつつ外側へ進む」と、gather.tsの
@@ -28,10 +32,38 @@ const BUILD_MARGIN = 0.9; // maxLineLengthのこの割合まで離れたら建�
  * （燃料回復）はsimulate.ts側の受動的な近接判定に任せれば十分なので、復路の
  * 進行方向を特定のアンカーに依存させる必要はない。
  *
+ * 【建設の集中回避（リーダー選出）】
+ * ladder.tsと全く同じ問題——建設が無コストなため、分離力なしに密集した複数
+ * boidがほぼ同tickに閾値を超え、同じ場所に重複した補給所の山ができてしまう
+ * ——がここでも起こるため、対策も同じ形（memory[INTENT_SLOT]による意思表示
+ * ＋util.tsのisLocalMaxによるID最大判定）で入れている。加えて「意思表示を
+ * 出し始めたそのtickでは建設を許可せず、前tickから連続して意思表示していた
+ * 場合のみ許可する」(wasIntending)という1tick分の据え置きも同様に必要——
+ * これはsimulate.tsのmemory書き戻しタイミングに起因する同tick内の非対称な
+ * リーク（IDが若いboidの今tickの書き込みは同tick内でIDが大きいboidから見える
+ * が、逆は見えない）により、1tickだけの判定だと複数個体が同tickに重複して
+ * 建設してしまうケースがあるため。詳しい仕組みと正しさの根拠はladder.tsの
+ * 該当コメントを参照。
+ *
+ * 建設は空荷(cargo===0)のときだけ試みる。復路(cargo>0)の間はwantsToBuildを
+ * 常にfalseとして扱い、意思表示(memory[INTENT_SLOT])も自然に0へ戻る——
+ * 荷物を届けに戻っている個体がリーダー選出に参加し続けて他個体の建設判断を
+ * 誤らせることのないようにするため。
+ *
+ * 加えて、視界内にmaxLineLength以内のアンカーが1つでも見えていれば無条件で
+ * wantsToBuildを取り下げる（nearVisibleAnchor）。リーダー選出は同tickの重複は
+ * 防ぐが、敗れた側がinteractRadius(dead reckoningのリセット判定)よりわずかに
+ * 遠い位置にいると、勝者の建設後もリセットされずに閾値を超え続け、勝者が
+ * 意思表示をやめた次のtickに「競争相手がいない」と誤認識してもう1つ近くに
+ * 建ててしまうケースがヘッドレスで見つかったため。詳しくはladder.tsの該当
+ * コメントを参照。
+ *
  * 検証中の仮説であり、これだけで安定して資源を回収し続けられるかは未確認。
  * headlessで実際に走らせながら詰まった箇所を直す想定のスタート地点。
  */
 export const supplyLineProgram: Program = (self, neighbors) => {
+  const wasIntending = self.memory[INTENT_SLOT] === 1; // このtickで上書きする前に、前tick終了時点の意思表示を読んでおく
+
   self.memory[0] += self.vel.x;
   self.memory[1] += self.vel.y;
 
@@ -61,8 +93,13 @@ export const supplyLineProgram: Program = (self, neighbors) => {
 
   // 空荷のときだけ建設を試みる。資源が見えているかどうかは問わない
   // （逸れた経路の先でも建設することで、結果的にラダーが資源方向へ伸びる）。
+  const nearVisibleAnchor = anchors.some((a) => length(a.relPos) < PHYSICS.maxLineLength);
   const estDist = length({ x: self.memory[0], y: self.memory[1] });
-  const build = self.cargo === 0 && estDist > PHYSICS.maxLineLength * BUILD_MARGIN;
+  const wantsToBuild = self.cargo === 0 && !nearVisibleAnchor && estDist > PHYSICS.maxLineLength * BUILD_MARGIN;
+  self.memory[INTENT_SLOT] = wantsToBuild ? 1 : 0;
+
+  const intendingPeers = neighbors.filter((n) => n.kind === 'boid' && n.memory?.[INTENT_SLOT] === 1);
+  const build = wantsToBuild && wasIntending && isLocalMax(self.id, intendingPeers);
 
   return { vel: scale(steer, PHYSICS.maxSpeed), harvest, drop, build };
 };

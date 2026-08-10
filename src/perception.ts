@@ -12,6 +12,10 @@ export interface NeighborView {
   amount?: number; // resource: 残量 / base: 貯蔵量
   cargo?: number; // kind === 'boid' のときだけ、荷物を運んでいるか（外から見てわかる情報として）
   memory?: readonly number[]; // kind === 'boid' のときだけ、読み取り専用スナップショット
+  // kind === 'boid' のときだけ設定。cargoと同じく固定・観測可能な属性で、絶対位置の
+  // 情報は一切含まない。役割分担（リーダー選出など）に使える狭い追加情報——memoryの
+  // ように毎tick手動でブロードキャストする必要はない。
+  id?: number;
   // kind === 'station' のときだけ設定。station.pos - 拠点.pos を「今」計算した値
   // （stationオブジェクト自体には持たせない）。boid自身の絶対位置は依然として
   // 一切渡さないが、既知のインフラ(station)については拠点からの相対位置という
@@ -65,6 +69,7 @@ export function buildNeighbors(boid: Boid, world: World): NeighborView[] {
       relVel: sub(other.vel, boid.vel),
       cargo: other.cargo,
       memory: other.memory,
+      id: other.id,
     });
   }
 

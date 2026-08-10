@@ -42,7 +42,7 @@ export function step(world: World, program: Program): void {
     if (action.drop && boid.cargo > 0) {
       const target = nearestWithin(boid.pos, [...world.bases, ...world.stations], PHYSICS.interactRadius);
       if (target) {
-        target.stored += boid.cargo;
+        world.stored += boid.cargo;
         boid.cargo = 0;
       }
     }

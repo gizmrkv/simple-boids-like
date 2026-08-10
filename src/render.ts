@@ -42,9 +42,6 @@ export function render(ctx: CanvasRenderingContext2D, world: World, showViewRadi
   for (const base of world.bases) {
     ctx.fillStyle = '#4dabf7';
     ctx.fillRect(base.pos.x - 6, base.pos.y - 6, 12, 12);
-    ctx.fillStyle = '#cfe8ff';
-    ctx.font = '10px monospace';
-    ctx.fillText(String(base.stored), base.pos.x + 8, base.pos.y - 8);
   }
 
   ctx.strokeStyle = 'rgba(218, 119, 242, 0.35)';
@@ -65,9 +62,6 @@ export function render(ctx: CanvasRenderingContext2D, world: World, showViewRadi
     ctx.closePath();
     ctx.fillStyle = '#da77f2';
     ctx.fill();
-    ctx.fillStyle = '#f3d9fa';
-    ctx.font = '10px monospace';
-    ctx.fillText(String(station.stored), station.pos.x + 8, station.pos.y - 8);
   }
 
   for (const res of world.resources) {

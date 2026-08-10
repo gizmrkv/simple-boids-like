@@ -24,9 +24,11 @@ type Program = (self: SelfView, neighbors: NeighborView[], world: WorldView) => 
   長さ`MEMORY_SIZE`の`number[]`）。**絶対位置は含まれない。**
 - `NeighborView[]`: 視界内(`PHYSICS.viewRadius`)にいるboid/資源/拠点/補給所。
   相対位置・相対速度に加え、boidなら運搬中かどうか(`cargo`)・ID(`id`)・内部
-  メモリ（読み取り専用）も見える。資源・拠点は`amount`（残量／貯蔵量）が
-  見える。補給所(`kind === 'station'`)は`relBase`（拠点からの相対位置、下記
-  「補給所(Station)と建設(build)」参照）が見える。
+  メモリ（読み取り専用）も見える。資源は`amount`（残量）が見える。拠点・
+  補給所は搬入済み資源量をグローバル管理に変更したため、個別の`amount`は
+  持たない（下記「補給所(Station)と建設(build)」参照）。補給所
+  (`kind === 'station'`)は`relBase`（拠点からの相対位置、同じく下記参照）が
+  見える。
 - `Action`: 次tickの速度ベクトル(`vel`)、および`harvest`(採取) / `drop`(搬入) /
   `handoff`(他boidへの荷物の受け渡し) / `build`(補給所の建設)の意思表示。
   実際に成立するかは`PHYSICS.interactRadius`（`build`だけ`maxLineLength`）内に
@@ -59,16 +61,22 @@ boidは、既存の拠点または補給所から`PHYSICS.maxLineLength`以内�
 `simulate.ts`が真の絶対座標で距離判定するため、判定はboidの推定に依存しない
 （perception.tsを経由しない、エンジン側で完結する制約）。
 
-- `Station`は`{ id, pos, stored }`のみ。距離などの「推定値」に類する付随情報
-  は意図的に持たせない。「建設時点の推定値をずっと保持している」状態を避ける
-  ため（詳細は`world.ts`の`Station`定義コメント参照）。`stored`は`Base`と同じ
-  ただの累計カウンタなのでこの原則には抵触しない。
+- `Station`は`{ id, pos }`のみ。距離などの「推定値」に類する付随情報は意図的
+  に持たせない。「建設時点の推定値をずっと保持している」状態を避けるため
+  （詳細は`world.ts`の`Station`定義コメント参照）。
 - 補給所は拠点と同様、`interactRadius`内にいるboidの燃料を全回復させる。
-  資源の搬入(`drop`)も拠点と同様に受け付け、`stored`に加算される——搬入完了
-  として扱われ、勝利条件の集計にも含まれる（`Base`専用だった旧仕様から変更、
-  詳細は[roadmap.md](roadmap.md)参照）。「最寄りの補給所に運べば搬入完了」に
-  なることで、拠点まで毎回戻る必要がなくなり、boidの行動範囲が拠点周辺に
-  束縛されずスケールする、というのが変更の狙い。
+  資源の搬入(`drop`)も拠点と同様に受け付け、`world.stored`（拠点・補給所を
+  問わないグローバルな合計カウンタ）に加算される——搬入完了として扱われ、
+  勝利条件の集計にも含まれる。「最寄りの補給所に運べば搬入完了」になることで、
+  拠点まで毎回戻る必要がなくなり、boidの行動範囲が拠点周辺に束縛されず
+  スケールする、というのが狙い。
+  以前は`Base`/`Station`がそれぞれ個別に`stored`を持っていたが、「拠点/補給所
+  ごとに資源を管理しない」というユーザーの要望により、単一の`world.stored`に
+  一本化した。これに伴い`NeighborView`の拠点・補給所の`amount`（個別の貯蔵量）
+  は廃止した——どのboidプログラムもこれを読んでいなかったため実質的な影響は
+  ない（読んでいたのは`kind === 'resource'`の`amount`のみ）。canvas上の
+  拠点・補給所ごとの数値表示も同じ理由で廃止し、合計は既存のステータス表示
+  （`checkWin().detail`）でのみ見える。
 - `NeighborView.relBase`（`kind === 'station'`のときだけ）は、その補給所の
   「拠点からの相対位置」を**perception.ts側が毎tick真の絶対座標から計算し直す**
   値。station自体は何も記憶していない。単一拠点前提（`world.bases[0]`）。

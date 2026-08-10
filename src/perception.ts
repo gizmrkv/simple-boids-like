@@ -9,7 +9,7 @@ export interface NeighborView {
   kind: NeighborKind;
   relPos: Vec2; // 知覚元boidを原点とした相対位置
   relVel: Vec2; // 相対速度（資源・拠点は静止しているので -selfVel）
-  amount?: number; // resource: 残量 / base・station: 貯蔵量
+  amount?: number; // resource: 残量
   cargo?: number; // kind === 'boid' のときだけ、荷物を運んでいるか（外から見てわかる情報として）
   memory?: readonly number[]; // kind === 'boid' のときだけ、読み取り専用スナップショット
   // kind === 'boid' のときだけ設定。cargoと同じく固定・観測可能な属性で、絶対位置の
@@ -82,7 +82,7 @@ export function buildNeighbors(boid: Boid, world: World): NeighborView[] {
   for (const base of world.bases) {
     const relPos = sub(base.pos, boid.pos);
     if (length(relPos) > r) continue;
-    neighbors.push({ kind: 'base', relPos, relVel: sub(zero(), boid.vel), amount: base.stored });
+    neighbors.push({ kind: 'base', relPos, relVel: sub(zero(), boid.vel) });
   }
 
   const homeBase = world.bases[0]; // 単一拠点前提（既存シナリオは全て拠点1つ）
@@ -93,7 +93,6 @@ export function buildNeighbors(boid: Boid, world: World): NeighborView[] {
       kind: 'station',
       relPos,
       relVel: sub(zero(), boid.vel),
-      amount: station.stored,
       relBase: homeBase ? sub(station.pos, homeBase.pos) : undefined,
     });
   }

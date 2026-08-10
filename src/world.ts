@@ -31,13 +31,11 @@ export interface ResourceNode {
 export interface Base {
   id: number;
   pos: Vec2;
-  stored: number;
 }
 
 export interface Station {
   id: number;
   pos: Vec2;
-  stored: number; // 拠点(Base)と同様、搬入(drop)された資源の累計。搬入完了として勝利条件にも数える
   // pos以外の「距離の推定値」のような付随情報は意図的に持たせない。
   // 「建設時点の推定値をずっと保持している」状態を避けるため。
 }
@@ -50,6 +48,7 @@ export interface World {
   resources: ResourceNode[];
   bases: Base[];
   stations: Station[]; // 建設され増減する補給所。bases/resourcesと違い実行中に増える
+  stored: number; // 拠点・補給所を問わず搬入(drop)された資源の合計。グローバルに管理する
 }
 
 let nextId = 0;
@@ -73,13 +72,13 @@ export function createResource(pos: Vec2, amount: number): ResourceNode {
 }
 
 export function createBase(pos: Vec2): Base {
-  return { id: freshId(), pos, stored: 0 };
+  return { id: freshId(), pos };
 }
 
 export function createStation(pos: Vec2): Station {
-  return { id: freshId(), pos, stored: 0 };
+  return { id: freshId(), pos };
 }
 
 export function createWorld(width: number, height: number): World {
-  return { width, height, tick: 0, boids: [], resources: [], bases: [], stations: [] };
+  return { width, height, tick: 0, boids: [], resources: [], bases: [], stations: [], stored: 0 };
 }

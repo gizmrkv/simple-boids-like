@@ -40,8 +40,7 @@ export const supplyLineScenario: Scenario = {
   program: supplyLineProgram,
   checkWin: (world) => {
     const base = world.bases[0];
-    const stored =
-      world.bases.reduce((sum, b) => sum + b.stored, 0) + world.stations.reduce((sum, s) => sum + s.stored, 0);
+    const stored = world.stored;
     const farthest = world.stations.reduce((max, s) => Math.max(max, length(sub(s.pos, base.pos))), 0);
     const stats = `station数 ${world.stations.length}, 到達距離 ${farthest.toFixed(0)}`;
     if (stored >= WIN_AMOUNT) return { won: true, detail: `搬入完了: ${stored} (${stats})` };

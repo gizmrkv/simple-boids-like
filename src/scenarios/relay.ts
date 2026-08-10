@@ -36,7 +36,7 @@ export const relayScenario: Scenario = {
   },
   program: relayProgram,
   checkWin: (world) => {
-    const stored = world.bases.reduce((sum, b) => sum + b.stored, 0);
+    const stored = world.stored;
     if (stored >= WIN_AMOUNT) return { won: true, detail: `搬入完了: ${stored}` };
     if (world.tick >= MAX_TICKS) return { won: false, detail: `時間切れ: ${stored}/${WIN_AMOUNT}` };
     return { won: false, detail: `搬入中: ${stored}/${WIN_AMOUNT} (tick ${world.tick})` };

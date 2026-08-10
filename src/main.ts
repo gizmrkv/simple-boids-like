@@ -50,5 +50,28 @@ function loop(): void {
   requestAnimationFrame(loop);
 }
 
+// 非表示タブではrequestAnimationFrameがブラウザ仕様で完全停止するため、
+// 自動操作ツールから見た目を確認する手段としてrAFに頼らない経路を用意する。
+// devビルドのみ有効（本番ビルドではimport.meta.env.DEVがfalseになり丸ごと
+// tree-shakingで消える）。window.__sim.step(n)で同期的にn tick進めて
+// 1回だけ再描画できるので、タブの表示状態に関係なく即座に結果を確認できる。
+if (import.meta.env.DEV) {
+  (window as unknown as { __sim: unknown }).__sim = {
+    get world() {
+      return world;
+    },
+    get scenario() {
+      return current;
+    },
+    scenarios: SCENARIOS,
+    selectScenario,
+    step(n = 1) {
+      for (let i = 0; i < n; i++) step(world, current.program);
+      render(ctx, world);
+      return current.checkWin(world);
+    },
+  };
+}
+
 selectScenario(SCENARIOS[0]);
 requestAnimationFrame(loop);

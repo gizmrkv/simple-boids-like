@@ -27,6 +27,12 @@ const ctx = canvas.getContext('2d')!;
 let current: Scenario = SCENARIOS[0];
 let world: World = current.createWorld();
 
+const debugViewRadiusLabel = document.createElement('label');
+const debugViewRadiusCheckbox = document.createElement('input');
+debugViewRadiusCheckbox.type = 'checkbox';
+debugViewRadiusLabel.appendChild(debugViewRadiusCheckbox);
+debugViewRadiusLabel.append('視界範囲を表示');
+
 function selectScenario(scenario: Scenario): void {
   current = scenario;
   world = current.createWorld();
@@ -48,11 +54,12 @@ function renderButtons(): void {
   resetBtn.textContent = 'リセット';
   resetBtn.onclick = () => selectScenario(current);
   controls.appendChild(resetBtn);
+  controls.appendChild(debugViewRadiusLabel);
 }
 
 function loop(): void {
   step(world, current.program);
-  render(ctx, world);
+  render(ctx, world, debugViewRadiusCheckbox.checked);
   const win = current.checkWin(world);
   statusEl.textContent = `${current.name}\n${current.description}\n${win.won ? '✅ ' : ''}${win.detail}`;
   requestAnimationFrame(loop);
@@ -75,7 +82,7 @@ if (import.meta.env.DEV) {
     selectScenario,
     step(n = 1) {
       for (let i = 0; i < n; i++) step(world, current.program);
-      render(ctx, world);
+      render(ctx, world, debugViewRadiusCheckbox.checked);
       return current.checkWin(world);
     },
   };

@@ -36,7 +36,7 @@ function supplyLineEdges(world: World): { from: Vec2; to: Vec2 }[] {
   return edges;
 }
 
-export function render(ctx: CanvasRenderingContext2D, world: World): void {
+export function render(ctx: CanvasRenderingContext2D, world: World, showViewRadius = false): void {
   ctx.clearRect(0, 0, world.width, world.height);
 
   for (const base of world.bases) {
@@ -76,6 +76,16 @@ export function render(ctx: CanvasRenderingContext2D, world: World): void {
     ctx.arc(res.pos.x, res.pos.y, 4 + Math.min(res.amount, 10), 0, Math.PI * 2);
     ctx.fillStyle = '#69db7c';
     ctx.fill();
+  }
+
+  if (showViewRadius) {
+    ctx.strokeStyle = 'rgba(34, 211, 238, 0.2)';
+    ctx.lineWidth = 1;
+    for (const boid of world.boids) {
+      ctx.beginPath();
+      ctx.arc(boid.pos.x, boid.pos.y, PHYSICS.viewRadius, 0, Math.PI * 2);
+      ctx.stroke();
+    }
   }
 
   for (const boid of world.boids) {

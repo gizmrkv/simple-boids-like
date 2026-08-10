@@ -10,6 +10,10 @@ const WIN_AMOUNT = 5;
 const MAX_TICKS = 60 * 3000; // 初期値。headless実行の結果を見て調整する
 
 const BASE_POS = { x: WIDTH / 2, y: HEIGHT / 2 };
+// spawn位置を拠点周囲の円盤状にランダム分散させる半径。viewRadius(60)より
+// 内側に収め、spawn直後は互いや拠点が視界に入りやすくする
+// （分離力で拡散が始まるための初期条件、詳細はprograms/frontier.ts参照）。
+const SPAWN_RADIUS = 40;
 // 資源クラスタの位置はランダムな角度・拠点からの距離約maxFuel*2で1回だけ決める。
 // distanceをmaxFuel超にすることで「補給所なしでは片道すら届かない」を保証し、
 // ラダー建設を必須にする（既存シナリオの「片道は届くが往復はできない」より厳しい）。
@@ -38,12 +42,13 @@ export const frontierScenario: Scenario = {
     }
 
     for (let i = 0; i < BOID_COUNT; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const r = Math.sqrt(Math.random()) * SPAWN_RADIUS; // 円盤内に一様分布させるための平方根補正
       const boid = createBoid(
-        { x: BASE_POS.x + (Math.random() - 0.5) * 10, y: BASE_POS.y + (Math.random() - 0.5) * 10 },
+        { x: BASE_POS.x + Math.cos(angle) * r, y: BASE_POS.y + Math.sin(angle) * r },
         undefined,
         PHYSICS.maxFuel,
       );
-      boid.memory[3] = (i / BOID_COUNT) * Math.PI * 2; // 個体固有の探索方位。以後プログラムは書き換えない
       world.boids.push(boid);
     }
     return world;

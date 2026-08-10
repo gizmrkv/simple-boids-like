@@ -1,5 +1,40 @@
+import type { Vec2 } from './vec2';
+import { length, sub } from './vec2';
 import type { World } from './world';
 import { PHYSICS } from './world';
+
+// stationは接続relationを持たない（意図的に最小限のまま）。線の描画は毎フレーム
+// その時点の真の位置から導出するだけの見た目上の表現で、build時の実際の
+// 接続関係を記憶しているわけではない（perception.tsのrelBaseと同じ考え方）。
+//
+// 「単純に一番近いアンカーへ線を引く」実装だと、近接して建った補給所同士が
+// お互いを最寄りとして選び、拠点への本来の経路が無視されて孤立した断片に
+// 見えてしまう問題があった（ヘッドレスではなくブラウザで実際に描画して初めて
+// 気づいた）。代わりに拠点を起点にしたBFSで全域木を組む。補給所は建設時に
+// 必ず既存のネットワーク(拠点かどこかの補給所)からmaxLineLength以内だった
+// ことがsimulate.ts側で保証されているため、この帰納的な性質により現存する
+// すべての補給所は拠点までmaxLineLengthごとの経路で連結可能なはずで、BFSなら
+// 単純な最近傍探索と違って必ずその経路を見つけられる。
+function supplyLineEdges(world: World): { from: Vec2; to: Vec2 }[] {
+  const nodes: Vec2[] = [...world.bases.map((b) => b.pos), ...world.stations.map((s) => s.pos)];
+  const visited = new Set<number>(world.bases.map((_, i) => i));
+  const queue = [...visited];
+  const edges: { from: Vec2; to: Vec2 }[] = [];
+
+  while (queue.length > 0) {
+    const cur = queue.shift()!;
+    for (let j = 0; j < nodes.length; j++) {
+      if (visited.has(j)) continue;
+      if (length(sub(nodes[j], nodes[cur])) <= PHYSICS.maxLineLength) {
+        visited.add(j);
+        queue.push(j);
+        edges.push({ from: nodes[cur], to: nodes[j] });
+      }
+    }
+  }
+
+  return edges;
+}
 
 export function render(ctx: CanvasRenderingContext2D, world: World): void {
   ctx.clearRect(0, 0, world.width, world.height);
@@ -10,6 +45,15 @@ export function render(ctx: CanvasRenderingContext2D, world: World): void {
     ctx.fillStyle = '#cfe8ff';
     ctx.font = '10px monospace';
     ctx.fillText(String(base.stored), base.pos.x + 8, base.pos.y - 8);
+  }
+
+  ctx.strokeStyle = 'rgba(218, 119, 242, 0.35)';
+  ctx.lineWidth = 2;
+  for (const edge of supplyLineEdges(world)) {
+    ctx.beginPath();
+    ctx.moveTo(edge.from.x, edge.from.y);
+    ctx.lineTo(edge.to.x, edge.to.y);
+    ctx.stroke();
   }
 
   for (const station of world.stations) {

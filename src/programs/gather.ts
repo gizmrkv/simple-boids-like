@@ -1,9 +1,7 @@
 import type { Program } from '../perception';
-import { add, length, limit, normalize, scale, zero } from '../vec2';
+import { length, limit, normalize, scale, zero } from '../vec2';
 import { PHYSICS } from '../world';
 import { closest } from './util';
-
-const SEPARATION_RADIUS = 15;
 
 /**
  * 資源を見つけて拠点まで運ぶ。memory[0..1] に拠点からの推定変位を
@@ -16,13 +14,6 @@ export const gatherProgram: Program = (self, neighbors) => {
 
   const resources = neighbors.filter((n) => n.kind === 'resource' && (n.amount ?? 0) > 0);
   const bases = neighbors.filter((n) => n.kind === 'base');
-  const others = neighbors.filter((n) => n.kind === 'boid');
-
-  let separation = zero();
-  for (const o of others) {
-    const d = length(o.relPos);
-    if (d > 0 && d < SEPARATION_RADIUS) separation = add(separation, scale(o.relPos, -1 / d));
-  }
 
   let steer = zero();
   let nearestBaseDist = Infinity;
@@ -46,7 +37,7 @@ export const gatherProgram: Program = (self, neighbors) => {
     steer = length(self.vel) > PHYSICS.maxSpeed * 0.1 ? normalize(self.vel) : { x: Math.cos(self.id), y: Math.sin(self.id) };
   }
 
-  const vel = limit(add(scale(steer, PHYSICS.maxSpeed), scale(separation, PHYSICS.maxSpeed * 0.6)), PHYSICS.maxSpeed);
+  const vel = limit(scale(steer, PHYSICS.maxSpeed), PHYSICS.maxSpeed);
   const drop = self.cargo > 0 && nearestBaseDist < PHYSICS.interactRadius;
   if (drop) {
     self.memory[0] = 0;

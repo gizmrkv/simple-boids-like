@@ -1,26 +1,23 @@
 import type { Program } from '../perception';
-import { add, length, limit, normalize, scale, zero } from '../vec2';
+import { length, limit, normalize, scale, zero } from '../vec2';
 import { PHYSICS } from '../world';
 import { closest } from './util';
 
 export const TARGET_RADIUS = 35; // 拠点から維持したい距離（viewRadius内に収まる値にしてある）
 const APPROACH_K = 0.05; // 距離誤差にどれだけ敏感に速度を出すか
-const SEPARATION_RADIUS = 25;
-const SEPARATION_K = 0.3;
 
 /**
  * 局所ルールだけで拠点の周囲に陣形（リング）を作り維持する。
- * 「拠点までの距離誤差に比例した速度で近づく/離れる」動きと「近すぎる仲間
- * からの分離」の組み合わせだけで、全体としては均等に散らばったリングが
- * 自己組織化される。memory[0..1] には拠点からの推定変位を積んでおき、
- * 万一視界外に出てしまっても dead reckoning で戻れるようにしている。
+ * 「拠点までの距離誤差に比例した速度で近づく/離れる」動きだけで、全体としては
+ * 均等に散らばったリングが自己組織化される。memory[0..1] には拠点からの推定
+ * 変位を積んでおき、万一視界外に出てしまっても dead reckoning で戻れるように
+ * している。
  */
 export const formationProgram: Program = (self, neighbors) => {
   self.memory[0] += self.vel.x;
   self.memory[1] += self.vel.y;
 
   const bases = neighbors.filter((n) => n.kind === 'base');
-  const others = neighbors.filter((n) => n.kind === 'boid');
 
   let vel: ReturnType<typeof zero>;
 
@@ -38,13 +35,6 @@ export const formationProgram: Program = (self, neighbors) => {
     const homeDir = normalize(scale({ x: self.memory[0], y: self.memory[1] }, -1));
     vel = scale(homeDir, PHYSICS.maxSpeed);
   }
-
-  let separation = zero();
-  for (const o of others) {
-    const d = length(o.relPos);
-    if (d > 0 && d < SEPARATION_RADIUS) separation = add(separation, scale(o.relPos, -1 / d));
-  }
-  vel = add(vel, scale(separation, SEPARATION_K));
 
   return { vel: limit(vel, PHYSICS.maxSpeed) };
 };

@@ -37,7 +37,8 @@ export interface Base {
 export interface Station {
   id: number;
   pos: Vec2;
-  // 拠点(Base)と違い stored や距離などの付随情報は意図的に持たせない。
+  stored: number; // 拠点(Base)と同様、搬入(drop)された資源の累計。搬入完了として勝利条件にも数える
+  // pos以外の「距離の推定値」のような付随情報は意図的に持たせない。
   // 「建設時点の推定値をずっと保持している」状態を避けるため。
 }
 
@@ -76,7 +77,7 @@ export function createBase(pos: Vec2): Base {
 }
 
 export function createStation(pos: Vec2): Station {
-  return { id: freshId(), pos };
+  return { id: freshId(), pos, stored: 0 };
 }
 
 export function createWorld(width: number, height: number): World {

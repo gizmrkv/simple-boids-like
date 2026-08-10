@@ -21,7 +21,7 @@ const RESOURCE_POS = { x: BASE_POS.x + RESOURCE_DISTANCE, y: HEIGHT / 2 };
 export const supplyLineScenario: Scenario = {
   id: 'supply-line',
   name: '5. 補給線輸送',
-  description: `拠点(青)から補給所(紫)のラダーを伸ばし、燃料だけでは届かない資源(緑)を回収して${WIN_AMOUNT}個搬入したら成功。`,
+  description: `拠点(青)から補給所(紫)のラダーを伸ばし、燃料だけでは届かない資源(緑)を回収して${WIN_AMOUNT}個搬入したら成功。搬入先は拠点・補給所のどちらでもよい。`,
   createWorld: () => {
     const world = createWorld(WIDTH, HEIGHT);
     world.bases.push(createBase(BASE_POS));
@@ -40,7 +40,8 @@ export const supplyLineScenario: Scenario = {
   program: supplyLineProgram,
   checkWin: (world) => {
     const base = world.bases[0];
-    const stored = world.bases.reduce((sum, b) => sum + b.stored, 0);
+    const stored =
+      world.bases.reduce((sum, b) => sum + b.stored, 0) + world.stations.reduce((sum, s) => sum + s.stored, 0);
     const farthest = world.stations.reduce((max, s) => Math.max(max, length(sub(s.pos, base.pos))), 0);
     const stats = `station数 ${world.stations.length}, 到達距離 ${farthest.toFixed(0)}`;
     if (stored >= WIN_AMOUNT) return { won: true, detail: `搬入完了: ${stored} (${stats})` };

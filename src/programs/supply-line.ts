@@ -30,7 +30,11 @@ const INTENT_SLOT = 2; // memory[2]: 「今建設したい」という意思表�
  * して西→東→西...と`relPos.x`の符号が反転し続け、その場で永久に往復振動して
  * 前進しなくなる不具合があった（ヘッドレス検証で発見）。補給所への立ち寄り
  * （燃料回復）はsimulate.ts側の受動的な近接判定に任せれば十分なので、復路の
- * 進行方向を特定のアンカーに依存させる必要はない。
+ * 進行方向を特定のアンカーに依存させる必要はない。搬入(drop)も同じ理由で
+ * 「西へ進む途中でたまたまinteractRadius内に入ったアンカー（拠点でも補給所
+ * でも可）へ即座に落とす」という受動的な判定にしている。補給所でも搬入完了
+ * 扱いになるため、最初に触れたアンカー（＝実質的に最寄りの補給所）へ落とせば
+ * よく、毎回拠点まで戻る必要がない。
  *
  * 【建設の集中回避（リーダー選出）】
  * ladder.tsと全く同じ問題——建設が無コストなため、分離力なしに密集した複数
@@ -79,9 +83,8 @@ export const supplyLineProgram: Program = (self, neighbors) => {
   let drop = false;
 
   if (self.cargo > 0) {
-    const bases = neighbors.filter((n) => n.kind === 'base');
     steer = RETURN_DIR;
-    drop = bases.length > 0 && length(closest(bases).relPos) < PHYSICS.interactRadius;
+    drop = anchors.length > 0 && length(closest(anchors).relPos) < PHYSICS.interactRadius;
   } else {
     const resources = neighbors.filter((n) => n.kind === 'resource' && (n.amount ?? 0) > 0);
     if (resources.length > 0) {

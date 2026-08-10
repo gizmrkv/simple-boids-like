@@ -65,6 +65,9 @@ export function render(ctx: CanvasRenderingContext2D, world: World): void {
     ctx.closePath();
     ctx.fillStyle = '#da77f2';
     ctx.fill();
+    ctx.fillStyle = '#f3d9fa';
+    ctx.font = '10px monospace';
+    ctx.fillText(String(station.stored), station.pos.x + 8, station.pos.y - 8);
   }
 
   for (const res of world.resources) {

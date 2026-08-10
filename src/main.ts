@@ -5,10 +5,11 @@ import { formationScenario } from './scenarios/formation';
 import { gatherScenario } from './scenarios/gather';
 import { ladderScenario } from './scenarios/ladder';
 import { relayScenario } from './scenarios/relay';
+import { supplyLineScenario } from './scenarios/supply-line';
 import { step } from './simulate';
 import type { World } from './world';
 
-const SCENARIOS: Scenario[] = [gatherScenario, formationScenario, relayScenario, ladderScenario];
+const SCENARIOS: Scenario[] = [gatherScenario, formationScenario, relayScenario, ladderScenario, supplyLineScenario];
 
 const controls = document.querySelector<HTMLDivElement>('#controls')!;
 const statusEl = document.querySelector<HTMLDivElement>('#status')!;

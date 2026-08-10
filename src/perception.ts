@@ -3,7 +3,7 @@ import { length, sub, zero } from './vec2';
 import type { Boid, World } from './world';
 import { PHYSICS } from './world';
 
-export type NeighborKind = 'boid' | 'resource' | 'base';
+export type NeighborKind = 'boid' | 'resource' | 'base' | 'station';
 
 export interface NeighborView {
   kind: NeighborKind;
@@ -12,6 +12,11 @@ export interface NeighborView {
   amount?: number; // resource: 残量 / base: 貯蔵量
   cargo?: number; // kind === 'boid' のときだけ、荷物を運んでいるか（外から見てわかる情報として）
   memory?: readonly number[]; // kind === 'boid' のときだけ、読み取り専用スナップショット
+  // kind === 'station' のときだけ設定。station.pos - 拠点.pos を「今」計算した値
+  // （stationオブジェクト自体には持たせない）。boid自身の絶対位置は依然として
+  // 一切渡さないが、既知のインフラ(station)については拠点からの相対位置という
+  // 形で真の情報を渡す、狭く意図的な例外。単一拠点前提(world.bases[0])で計算。
+  relBase?: Vec2;
 }
 
 export interface SelfView {
@@ -33,6 +38,7 @@ export interface Action {
   harvest?: boolean; // interactRadius内の資源から採取を試みる
   drop?: boolean; // interactRadius内の拠点へ搬入を試みる
   handoff?: boolean; // interactRadius内の空荷の他boidへ荷物を手渡す（リレー用）
+  build?: boolean; // maxLineLength内に拠点/補給所があれば新しい補給所を建設する（コストなし）
 }
 
 export type Program = (self: SelfView, neighbors: NeighborView[], world: WorldView) => Action;
@@ -72,6 +78,18 @@ export function buildNeighbors(boid: Boid, world: World): NeighborView[] {
     const relPos = sub(base.pos, boid.pos);
     if (length(relPos) > r) continue;
     neighbors.push({ kind: 'base', relPos, relVel: sub(zero(), boid.vel), amount: base.stored });
+  }
+
+  const homeBase = world.bases[0]; // 単一拠点前提（既存シナリオは全て拠点1つ）
+  for (const station of world.stations) {
+    const relPos = sub(station.pos, boid.pos);
+    if (length(relPos) > r) continue;
+    neighbors.push({
+      kind: 'station',
+      relPos,
+      relVel: sub(zero(), boid.vel),
+      relBase: homeBase ? sub(station.pos, homeBase.pos) : undefined,
+    });
   }
 
   return neighbors;

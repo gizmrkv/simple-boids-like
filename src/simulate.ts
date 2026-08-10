@@ -2,7 +2,7 @@ import { add, length, limit, sub, zero } from './vec2';
 import type { Action, Program } from './perception';
 import { buildNeighbors, buildSelfView, buildWorldView } from './perception';
 import type { World } from './world';
-import { PHYSICS } from './world';
+import { createStation, PHYSICS } from './world';
 
 export function step(world: World, program: Program): void {
   // 1. 現在の状態を元に、全boid分のactionを先に集める（順序依存を避ける）
@@ -56,9 +56,21 @@ export function step(world: World, program: Program): void {
       }
     }
 
-    // 拠点の近くにいる間は燃料が全回復する（補給ステーション）。
+    if (action.build) {
+      const anchors = [...world.bases, ...world.stations];
+      const nearAnchor = nearestWithin(boid.pos, anchors, PHYSICS.maxLineLength);
+      if (nearAnchor) {
+        world.stations.push(createStation(boid.pos));
+      }
+    }
+
+    // 拠点・補給所の近くにいる間は燃料が全回復する。
     // 燃料無制限のboid（Infinity）はそもそも対象外。
-    if (Number.isFinite(boid.fuel) && nearestWithin(boid.pos, world.bases, PHYSICS.interactRadius)) {
+    if (
+      Number.isFinite(boid.fuel) &&
+      (nearestWithin(boid.pos, world.bases, PHYSICS.interactRadius) ||
+        nearestWithin(boid.pos, world.stations, PHYSICS.interactRadius))
+    ) {
       boid.fuel = PHYSICS.maxFuel;
     }
   });

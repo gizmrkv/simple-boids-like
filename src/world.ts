@@ -10,6 +10,7 @@ export const PHYSICS = {
   interactRadius: 8, // 資源採取・拠点搬入・boid間の受け渡しができる半径
   maxFuel: 260, // 移動できる総距離の上限。拠点に近づくと全回復する
   fuelBurnRate: 1, // 単位距離あたりの燃料消費量
+  maxLineLength: 100, // 既存の拠点/補給所からこの距離以内でないと新しい補給所を建設できない
 };
 
 export interface Boid {
@@ -33,6 +34,13 @@ export interface Base {
   stored: number;
 }
 
+export interface Station {
+  id: number;
+  pos: Vec2;
+  // 拠点(Base)と違い stored や距離などの付随情報は意図的に持たせない。
+  // 「建設時点の推定値をずっと保持している」状態を避けるため。
+}
+
 export interface World {
   width: number;
   height: number;
@@ -40,6 +48,7 @@ export interface World {
   boids: Boid[];
   resources: ResourceNode[];
   bases: Base[];
+  stations: Station[]; // 建設され増減する補給所。bases/resourcesと違い実行中に増える
 }
 
 let nextId = 0;
@@ -66,6 +75,10 @@ export function createBase(pos: Vec2): Base {
   return { id: freshId(), pos, stored: 0 };
 }
 
+export function createStation(pos: Vec2): Station {
+  return { id: freshId(), pos };
+}
+
 export function createWorld(width: number, height: number): World {
-  return { width, height, tick: 0, boids: [], resources: [], bases: [] };
+  return { width, height, tick: 0, boids: [], resources: [], bases: [], stations: [] };
 }

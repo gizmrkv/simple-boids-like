@@ -12,6 +12,17 @@ export function render(ctx: CanvasRenderingContext2D, world: World): void {
     ctx.fillText(String(base.stored), base.pos.x + 8, base.pos.y - 8);
   }
 
+  for (const station of world.stations) {
+    ctx.beginPath();
+    ctx.moveTo(station.pos.x, station.pos.y - 5);
+    ctx.lineTo(station.pos.x + 5, station.pos.y);
+    ctx.lineTo(station.pos.x, station.pos.y + 5);
+    ctx.lineTo(station.pos.x - 5, station.pos.y);
+    ctx.closePath();
+    ctx.fillStyle = '#da77f2';
+    ctx.fill();
+  }
+
   for (const res of world.resources) {
     if (res.amount <= 0) continue;
     ctx.beginPath();

@@ -1,4 +1,4 @@
-import { add, length, limit, sub } from './vec2';
+import { add, length, limit, sub, zero } from './vec2';
 import type { Action, Program } from './perception';
 import { buildNeighbors, buildSelfView, buildWorldView } from './perception';
 import type { World } from './world';
@@ -19,9 +19,11 @@ export function step(world: World, program: Program): void {
   world.boids.forEach((boid, i) => {
     const action = actions[i];
 
-    // 燃料切れの間は速度を変更できず、直前の速度のまま慣性で進み続ける
+    // 燃料切れの間は速度を変更できず停止する
     if (boid.fuel > 0) {
       boid.vel = limit(action.vel, PHYSICS.maxSpeed);
+    } else {
+      boid.vel = zero();
     }
 
     const prevPos = boid.pos;

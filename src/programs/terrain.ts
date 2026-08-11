@@ -7,6 +7,7 @@ const SAFE_DIST = 15; // これを下回ったら壁沿い走行(wall-following)
 const WALL_TURN_STEP = 0.2; // 壁沿い走行中、1tickごとに固定方向へ回転する角度
 const MAX_SEEK_TURN = 0.3; // 目標へ向かうとき、1tickあたりの旋回量の上限（暴走防止）
 const BUILD_MARGIN = 0.75; // frontier.tsと同じ値・同じ理由（余裕を持ってmaxLineLength手前で建てる）
+const FUEL_RETURN_RATIO = 0.5; // frontier.ts/relay.tsと同じ値。残燃料がこの割合を切ったら帰還を優先する
 // memory[3]: 建設意思表示。frontier.tsはmemory[2]を使うが、このプログラムは
 // memory[2]を壁沿い走行の回転方向(handedness)に使っているため、空いている
 // memory[3]を使う（memory[0..1]はdead reckoningの共通の慣習）。
@@ -30,6 +31,12 @@ const INTENT_SLOT = 3;
  * dead reckoningの積分値を使う理由（直視認しているアンカーの真上での
  * 振動を避けるため）も含め、frontier.tsのdocコメントに詳しい証明がある
  * ので、このプログラムでは繰り返さない。
+ *
+ * 燃料まわり（低燃料時の緊急帰還、燃料切れ中のdead reckoning速度クランプ）も
+ * frontier.tsで見つかった不具合の対策をそのまま流用している。壁沿い走行で
+ * 迂回すると実移動距離（＝燃料消費）がdead reckoningの正味変位より大きく
+ * 伸びうるため、素通りの直線距離を前提にしたmaxLineLengthの補給所建設
+ * だけでは燃料切れ孤立を防ぎきれない可能性があり、同じ安全策を入れている。
  */
 export const terrainProgram: Program = (self, neighbors) => {
   const wasIntending = self.memory[INTENT_SLOT] === 1;
@@ -44,28 +51,36 @@ export const terrainProgram: Program = (self, neighbors) => {
   }
 
   const resources = neighbors.filter((n) => n.kind === 'resource' && (n.amount ?? 0) > 0);
+  // 視界内のアンカーの生のrelPosではなく、dead reckoningの積分値を使う。
+  // 直前に自分で建てた補給所のほぼ真上にいる状況で生のrelPosを目標に
+  // すると、1tickごとにオーバーシュートして前後に振動する不具合が
+  // frontier.tsの前身(削除済みsupply-line.ts)で見つかっているため
+  // （frontier.tsのdocコメント参照）。
+  const homeVec = { x: -self.memory[0], y: -self.memory[1] };
+  const homeDir = length(homeVec) > 0 ? normalize(homeVec) : zero();
+  const lowFuel = self.fuel < PHYSICS.maxFuel * FUEL_RETURN_RATIO;
 
   let steer = zero();
   let hasGoal = false;
   let harvest = false;
 
   if (self.cargo > 0) {
-    // 視界内のアンカーの生のrelPosではなく、dead reckoningの積分値を使う。
-    // 直前に自分で建てた補給所のほぼ真上にいる状況で生のrelPosを目標に
-    // すると、1tickごとにオーバーシュートして前後に振動する不具合が
-    // frontier.tsの前身(削除済みsupply-line.ts)で見つかっているため
-    // （frontier.tsのdocコメント参照）。
-    const homeVec = { x: -self.memory[0], y: -self.memory[1] };
     hasGoal = length(homeVec) > 0;
-    steer = hasGoal ? normalize(homeVec) : zero();
+    steer = homeDir;
   } else if (resources.length > 0) {
     const res = closest(resources);
     steer = normalize(res.relPos);
     hasGoal = true;
     harvest = length(res.relPos) < PHYSICS.interactRadius;
+  } else if (lowFuel) {
+    // frontier.tsの緊急帰還と同じ考え方。壁沿い走行の迂回で実移動距離が
+    // dead reckoningの正味変位より伸び、maxLineLength基準の補給所建設だけ
+    // では間に合わず燃料切れ孤立に陥るケースへの備え。
+    steer = anchors.length > 0 ? normalize(closest(anchors).relPos) : homeDir;
+    hasGoal = length(steer) > 0;
   }
-  // 目標が何もない場合（資源も見えず、cargo===0）はhasGoal=falseのまま
-  // （goalTurn=0で直進、下の壁沿いモードが自然に探索してくれる）。
+  // 目標が何もない場合（資源も見えず、cargo===0、燃料も十分）はhasGoal=false
+  // のまま（goalTurn=0で直進、下の壁沿いモードが自然に探索してくれる）。
 
   const goalTurn = hasGoal ? Math.atan2(steer.y, steer.x) : 0;
   const blocked = self.frontDist < SAFE_DIST;
@@ -98,7 +113,13 @@ export const terrainProgram: Program = (self, neighbors) => {
   const intendingPeers = neighbors.filter((n) => n.kind === 'boid' && n.memory?.[INTENT_SLOT] === 1);
   const build = wantsToBuild && wasIntending && isLocalMax(self.id, intendingPeers);
 
-  updateDeadReckoning(self.memory, turn, speed);
+  // dead reckoning更新にはエンジンが実際に適用する速度を使う必要がある。
+  // 燃料切れ中はsimulate.tsがspeedをPHYSICS.maxSpeed*emptyFuelSpeedRatioに
+  // クランプするため、ここでも同じ上限を適用してから積算しないと「実際には
+  // 少ししか動いていないのに動いた前提でhomeDirを計算し続け、2周期振動に
+  // 陥る」不具合が起きる（frontier.tsで発見・修正済みのものと同種）。
+  const speedCap = self.fuel > 0 ? PHYSICS.maxSpeed : PHYSICS.maxSpeed * PHYSICS.emptyFuelSpeedRatio;
+  updateDeadReckoning(self.memory, turn, Math.min(speed, speedCap));
 
   return { turn, speed, harvest, drop, build };
 };

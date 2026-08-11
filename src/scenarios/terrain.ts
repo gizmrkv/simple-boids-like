@@ -74,6 +74,7 @@ export const terrainScenario: Scenario = {
             y: basePos.y + Math.sin(angle) * 12,
           },
           angle, // 初期headingも分散させる。全員が同じ向きだと壁沿い走行で同じ壁を辿ってしまう
+          PHYSICS.maxFuel,
         ),
       );
     }

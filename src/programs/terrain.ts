@@ -1,5 +1,5 @@
 import type { Program } from '../perception';
-import { length, normalize, zero } from '../vec2';
+import { add, length, normalize, scale, zero } from '../vec2';
 import { PHYSICS } from '../world';
 import { closest, isLocalMax, updateDeadReckoning } from './util';
 
@@ -8,6 +8,7 @@ const WALL_TURN_STEP = 0.2; // 壁沿い走行中、1tickごとに固定方向�
 const MAX_SEEK_TURN = 0.3; // 目標へ向かうとき、1tickあたりの旋回量の上限（暴走防止）
 const BUILD_MARGIN = 0.75; // frontier.tsと同じ値・同じ理由（余裕を持ってmaxLineLength手前で建てる）
 const FUEL_RETURN_RATIO = 0.5; // frontier.ts/relay.tsと同じ値。残燃料がこの割合を切ったら帰還を優先する
+const SEPARATION_MAX_TURN = 0.08; // 弱め。壁沿い走行(0.2/tick)より小さい摂動に留める
 // memory[3]: 建設意思表示。frontier.tsはmemory[2]を使うが、このプログラムは
 // memory[2]を壁沿い走行の回転方向(handedness)に使っているため、空いている
 // memory[3]を使う（memory[0..1]はdead reckoningの共通の慣習）。
@@ -37,6 +38,21 @@ const INTENT_SLOT = 3;
  * 迂回すると実移動距離（＝燃料消費）がdead reckoningの正味変位より大きく
  * 伸びうるため、素通りの直線距離を前提にしたmaxLineLengthの補給所建設
  * だけでは燃料切れ孤立を防ぎきれない可能性があり、同じ安全策を入れている。
+ *
+ * 【局所ループ対策としての弱い分離(Separation)】
+ * 壁沿い走行は「前方が開けたら即座に目標追従モードへ戻る」だけで、Bug2の
+ * ような「開始地点より目標に近づいたか」という進捗判定を持たない。その
+ * ため、同じ障害物の周りで「壁沿い走行→少し開けて目標追従→また同じ障害物
+ * にぶつかる」を繰り返す局所ループにはまり込むことがある（ブラウザでの
+ * 目視確認で発覚）。地形やdead reckoningだけでは自力で抜け出せないため、
+ * Reynoldsのboidsアルゴリズム本来の分離則を弱く加えた: 視界内の他boidから
+ * 反発する方向へ、turnにSEPARATION_MAX_TURNを上限とする小さな補正を足す。
+ * 他boidの位置は地形やdead reckoningとは独立に変動するため、同じ局所ループを
+ * 毎回寸分違わず繰り返すことがなくなり、いずれ別の他boidが近くを通った
+ * タイミングで軌道がずれてループを抜け出せる（ただし、他boidが誰も
+ * 近づかない領域では効かない確率的な対策である点に注意）。壁沿い走行・
+ * 目標追従の判断そのものは変えず、最終的なturnへの摂動としてだけ加える
+ * ため、既存のhandedness選択やdead reckoningの精度には影響しない。
  */
 export const terrainProgram: Program = (self, neighbors) => {
   const wasIntending = self.memory[INTENT_SLOT] === 1;
@@ -98,6 +114,20 @@ export const terrainProgram: Program = (self, neighbors) => {
     self.memory[2] = 0; // 開けたら壁沿いモードを解除（次に詰まった時また向きを選び直す）
     turn = Math.max(-MAX_SEEK_TURN, Math.min(MAX_SEEK_TURN, goalTurn));
     speed = PHYSICS.maxSpeed;
+  }
+
+  // 局所ループ対策の弱い分離。視界内の他boidから、近いほど強く反発する
+  // 方向へturnをわずかに補正する（frontier.tsの分離力と同じ計算式）。
+  const peers = neighbors.filter((n) => n.kind === 'boid');
+  let repel = zero();
+  for (const peer of peers) {
+    const d = length(peer.relPos);
+    if (d < 1e-6) continue;
+    repel = add(repel, scale(normalize(scale(peer.relPos, -1)), 1 / d));
+  }
+  if (length(repel) > 0) {
+    const separationTurn = Math.atan2(repel.y, repel.x);
+    turn += Math.max(-SEPARATION_MAX_TURN, Math.min(SEPARATION_MAX_TURN, separationTurn));
   }
 
   const drop = self.cargo > 0 && atAnchor;

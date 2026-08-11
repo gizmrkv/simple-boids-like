@@ -29,10 +29,13 @@ export const terrainScenario: Scenario = {
     for (let i = 0; i < 6; i++) {
       const angle = (i / 6) * Math.PI * 2;
       world.boids.push(
-        createBoid({
-          x: basePos.x + Math.cos(angle) * 12,
-          y: basePos.y + Math.sin(angle) * 12,
-        }),
+        createBoid(
+          {
+            x: basePos.x + Math.cos(angle) * 12,
+            y: basePos.y + Math.sin(angle) * 12,
+          },
+          angle, // 初期headingも分散させる。全員が同じ向きだと壁沿い走行で同じ壁を辿ってしまう
+        ),
       );
     }
     // 拠点周辺(視界半径ぶん)は生成結果に関わらず必ず歩行可能にする。

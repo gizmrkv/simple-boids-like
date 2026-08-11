@@ -83,10 +83,9 @@ export function render(ctx: CanvasRenderingContext2D, world: World, showViewRadi
   }
 
   for (const boid of world.boids) {
-    const angle = Math.atan2(boid.vel.y, boid.vel.x);
     ctx.save();
     ctx.translate(boid.pos.x, boid.pos.y);
-    ctx.rotate(angle);
+    ctx.rotate(boid.heading);
     ctx.beginPath();
     ctx.moveTo(5, 0);
     ctx.lineTo(-4, 3);

@@ -51,7 +51,7 @@ export const frontierScenario: Scenario = {
       const r = Math.sqrt(Math.random()) * SPAWN_RADIUS; // 円盤内に一様分布させるための平方根補正
       const boid = createBoid(
         { x: BASE_POS.x + Math.cos(angle) * r, y: BASE_POS.y + Math.sin(angle) * r },
-        undefined,
+        0,
         PHYSICS.maxFuel,
       );
       world.boids.push(boid);

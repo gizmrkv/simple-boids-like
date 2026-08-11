@@ -1,4 +1,4 @@
-import { add, length, limit, sub, zero } from './vec2';
+import { add, fromPolar, length, sub } from './vec2';
 import type { Action, Program } from './perception';
 import { buildNeighbors, buildSelfView, buildWorldView } from './perception';
 import type { World } from './world';
@@ -19,15 +19,16 @@ export function step(world: World, program: Program): void {
   world.boids.forEach((boid, i) => {
     const action = actions[i];
 
-    // 燃料切れの間は速度を変更できず停止する
+    // 燃料切れの間はheading・speedとも変更できず停止する（無料での旋回もできない）
     if (boid.fuel > 0) {
-      boid.vel = limit(action.vel, PHYSICS.maxSpeed);
+      boid.heading += action.turn;
+      boid.speed = Math.min(Math.max(action.speed, 0), PHYSICS.maxSpeed);
     } else {
-      boid.vel = zero();
+      boid.speed = 0;
     }
 
     const prevPos = boid.pos;
-    boid.pos = add(boid.pos, boid.vel); // 次tickの位置 = 現在位置 + 速度
+    boid.pos = add(boid.pos, fromPolar(boid.heading, boid.speed)); // 次tickの位置 = 現在位置 + 速度ベクトル
     bounceOffWalls(boid, world);
     boid.fuel = Math.max(0, boid.fuel - length(sub(boid.pos, prevPos)) * PHYSICS.fuelBurnRate);
 
@@ -78,20 +79,35 @@ export function step(world: World, program: Program): void {
   world.tick += 1;
 }
 
+// 境界に当たった場合のみ、反射後の速度ベクトルからheadingを再計算する
+// （speedは不変）。当たっていないtickでheadingを毎回atan2で再計算すると、
+// speed=0のときにheadingが0へ巻き戻ってしまうため、実際に反射が起きた
+// ときだけ書き換える。
 function bounceOffWalls(boid: World['boids'][number], world: World): void {
+  const vel = fromPolar(boid.heading, boid.speed);
+  let bounced = false;
+
   if (boid.pos.x < 0) {
     boid.pos.x = 0;
-    boid.vel.x = Math.abs(boid.vel.x);
+    vel.x = Math.abs(vel.x);
+    bounced = true;
   } else if (boid.pos.x > world.width) {
     boid.pos.x = world.width;
-    boid.vel.x = -Math.abs(boid.vel.x);
+    vel.x = -Math.abs(vel.x);
+    bounced = true;
   }
   if (boid.pos.y < 0) {
     boid.pos.y = 0;
-    boid.vel.y = Math.abs(boid.vel.y);
+    vel.y = Math.abs(vel.y);
+    bounced = true;
   } else if (boid.pos.y > world.height) {
     boid.pos.y = world.height;
-    boid.vel.y = -Math.abs(boid.vel.y);
+    vel.y = -Math.abs(vel.y);
+    bounced = true;
+  }
+
+  if (bounced && boid.speed > 0) {
+    boid.heading = Math.atan2(vel.y, vel.x);
   }
 }
 

@@ -1,5 +1,5 @@
 import type { Vec2 } from './vec2';
-import { length, sub, zero } from './vec2';
+import { fromPolar, length, rotate, sub, zero } from './vec2';
 import type { Boid, World } from './world';
 import { PHYSICS } from './world';
 
@@ -7,8 +7,11 @@ export type NeighborKind = 'boid' | 'resource' | 'base' | 'station';
 
 export interface NeighborView {
   kind: NeighborKind;
-  relPos: Vec2; // 知覚元boidを原点とした相対位置
-  relVel: Vec2; // 相対速度（資源・拠点は静止しているので -selfVel）
+  // 知覚元boidの現在のheadingを基準としたローカル座標系での相対位置
+  // （+xが常に「自分の正面」）。boidは自分の絶対headingを知らないので、
+  // ここでの座標がboidにとっての唯一の方向の基準になる。
+  relPos: Vec2;
+  relVel: Vec2; // 同じくローカル座標系での相対速度（資源・拠点は静止している）
   amount?: number; // resource: 残量
   cargo?: number; // kind === 'boid' のときだけ、荷物を運んでいるか（外から見てわかる情報として）
   memory?: readonly number[]; // kind === 'boid' のときだけ、読み取り専用スナップショット
@@ -17,15 +20,16 @@ export interface NeighborView {
   // ように毎tick手動でブロードキャストする必要はない。
   id?: number;
   // kind === 'station' のときだけ設定。station.pos - 拠点.pos を「今」計算した値
-  // （stationオブジェクト自体には持たせない）。boid自身の絶対位置は依然として
-  // 一切渡さないが、既知のインフラ(station)については拠点からの相対位置という
-  // 形で真の情報を渡す、狭く意図的な例外。単一拠点前提(world.bases[0])で計算。
+  // （stationオブジェクト自体には持たせない）。知覚元boidの位置にもheadingにも
+  // 依存しない、拠点を基準にしたインフラ同士の相対位置なので、他のrelPosと違い
+  // 回転させない（回転させると「同じstationなのにboidごとに値が変わる」という、
+  // 拠点基準の情報としての意味が崩れてしまう）。単一拠点前提(world.bases[0])で計算。
   relBase?: Vec2;
 }
 
 export interface SelfView {
   id: number; // 自分自身のID（役割分担などに使える。絶対位置の情報は含まない）
-  vel: Readonly<Vec2>; // 自分の絶対速度（絶対位置は渡さない）
+  speed: number; // 自分の速さ（0〜PHYSICS.maxSpeed）。向きは常に「自分の正面」なので公開しない
   cargo: number;
   fuel: number; // 残燃料
   memory: number[]; // 書き換え可能なコピー。simulateがtick後にboidへ書き戻す
@@ -38,7 +42,8 @@ export interface WorldView {
 }
 
 export interface Action {
-  vel: Vec2; // 次tickの速度ベクトル。大きさはPHYSICS.maxSpeedでクランプされる
+  turn: number; // 今tickでheadingに加える回転角（ラジアン）。上限なし
+  speed: number; // 次tickの速さ。PHYSICS.maxSpeedでクランプされる
   harvest?: boolean; // interactRadius内の資源から採取を試みる
   drop?: boolean; // interactRadius内の拠点へ搬入を試みる
   handoff?: boolean; // interactRadius内の空荷の他boidへ荷物を手渡す（リレー用）
@@ -48,7 +53,7 @@ export interface Action {
 export type Program = (self: SelfView, neighbors: NeighborView[], world: WorldView) => Action;
 
 export function buildSelfView(boid: Boid): SelfView {
-  return { id: boid.id, vel: boid.vel, cargo: boid.cargo, fuel: boid.fuel, memory: [...boid.memory] };
+  return { id: boid.id, speed: boid.speed, cargo: boid.cargo, fuel: boid.fuel, memory: [...boid.memory] };
 }
 
 export function buildWorldView(world: World): WorldView {
@@ -58,15 +63,18 @@ export function buildWorldView(world: World): WorldView {
 export function buildNeighbors(boid: Boid, world: World): NeighborView[] {
   const neighbors: NeighborView[] = [];
   const r = PHYSICS.viewRadius;
+  const boidVel = fromPolar(boid.heading, boid.speed);
+  const toLocal = (worldVec: Vec2): Vec2 => rotate(worldVec, -boid.heading);
 
   for (const other of world.boids) {
     if (other.id === boid.id) continue;
     const relPos = sub(other.pos, boid.pos);
     if (length(relPos) > r) continue;
+    const otherVel = fromPolar(other.heading, other.speed);
     neighbors.push({
       kind: 'boid',
-      relPos,
-      relVel: sub(other.vel, boid.vel),
+      relPos: toLocal(relPos),
+      relVel: toLocal(sub(otherVel, boidVel)),
       cargo: other.cargo,
       memory: other.memory,
       id: other.id,
@@ -76,13 +84,13 @@ export function buildNeighbors(boid: Boid, world: World): NeighborView[] {
   for (const res of world.resources) {
     const relPos = sub(res.pos, boid.pos);
     if (length(relPos) > r) continue;
-    neighbors.push({ kind: 'resource', relPos, relVel: sub(zero(), boid.vel), amount: res.amount });
+    neighbors.push({ kind: 'resource', relPos: toLocal(relPos), relVel: toLocal(sub(zero(), boidVel)), amount: res.amount });
   }
 
   for (const base of world.bases) {
     const relPos = sub(base.pos, boid.pos);
     if (length(relPos) > r) continue;
-    neighbors.push({ kind: 'base', relPos, relVel: sub(zero(), boid.vel) });
+    neighbors.push({ kind: 'base', relPos: toLocal(relPos), relVel: toLocal(sub(zero(), boidVel)) });
   }
 
   const homeBase = world.bases[0]; // 単一拠点前提（既存シナリオは全て拠点1つ）
@@ -91,8 +99,8 @@ export function buildNeighbors(boid: Boid, world: World): NeighborView[] {
     if (length(relPos) > r) continue;
     neighbors.push({
       kind: 'station',
-      relPos,
-      relVel: sub(zero(), boid.vel),
+      relPos: toLocal(relPos),
+      relVel: toLocal(sub(zero(), boidVel)),
       relBase: homeBase ? sub(station.pos, homeBase.pos) : undefined,
     });
   }

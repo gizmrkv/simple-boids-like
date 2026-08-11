@@ -1,5 +1,4 @@
 import type { Vec2 } from './vec2';
-import { zero } from './vec2';
 
 /** boidが内部に保持できるメモリのスロット数（読み書き可能な状態）。 */
 export const MEMORY_SIZE = 4;
@@ -16,7 +15,8 @@ export const PHYSICS = {
 export interface Boid {
   id: number;
   pos: Vec2; // 絶対位置（perception層の外には渡さない）
-  vel: Vec2; // 絶対速度。次tickの位置は pos + vel で決まる
+  heading: number; // 向き（ラジアン）。旋回に上限はなく、毎tick自由に変えられる
+  speed: number; // 速さ。0〜PHYSICS.maxSpeed。実際の移動ベクトルはheading/speedから導出する
   memory: number[]; // 内部メモリ、長さ MEMORY_SIZE
   cargo: number; // 運搬中の資源量（0 or 1）
   fuel: number; // 残燃料。0になると速度を変更できなくなる
@@ -54,13 +54,14 @@ export interface World {
 let nextId = 0;
 const freshId = (): number => nextId++;
 
-// 既定は燃料無制限。行動範囲を制限したいシナリオ（中継リレー輸送）だけ
+// 既定は燃料無制限。行動範囲を制限したいシナリオだけ
 // PHYSICS.maxFuel などの有限値を明示的に渡す。
-export function createBoid(pos: Vec2, vel: Vec2 = zero(), fuel: number = Infinity): Boid {
+export function createBoid(pos: Vec2, heading: number = 0, fuel: number = Infinity): Boid {
   return {
     id: freshId(),
     pos,
-    vel,
+    heading,
+    speed: 0,
     memory: new Array(MEMORY_SIZE).fill(0),
     cargo: 0,
     fuel,

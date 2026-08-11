@@ -22,3 +22,14 @@ export const limit = (a: Vec2, max: number): Vec2 => {
   const len = length(a);
   return len > max ? scale(a, max / len) : a;
 };
+
+export const rotate = (a: Vec2, angle: number): Vec2 => {
+  const c = Math.cos(angle);
+  const s = Math.sin(angle);
+  return { x: a.x * c - a.y * s, y: a.x * s + a.y * c };
+};
+
+export const fromPolar = (angle: number, len: number): Vec2 => ({
+  x: Math.cos(angle) * len,
+  y: Math.sin(angle) * len,
+});

@@ -4,20 +4,10 @@ import type { Scenario } from './scenario';
 import { formationScenario } from './scenarios/formation';
 import { frontierScenario } from './scenarios/frontier';
 import { gatherScenario } from './scenarios/gather';
-import { ladderScenario } from './scenarios/ladder';
-import { relayScenario } from './scenarios/relay';
-import { supplyLineScenario } from './scenarios/supply-line';
 import { step } from './simulate';
 import type { World } from './world';
 
-const SCENARIOS: Scenario[] = [
-  gatherScenario,
-  formationScenario,
-  relayScenario,
-  ladderScenario,
-  supplyLineScenario,
-  frontierScenario,
-];
+const SCENARIOS: Scenario[] = [gatherScenario, formationScenario, frontierScenario];
 
 const controls = document.querySelector<HTMLDivElement>('#controls')!;
 const statusEl = document.querySelector<HTMLDivElement>('#status')!;

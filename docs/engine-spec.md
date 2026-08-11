@@ -42,6 +42,61 @@ steering behaviors原論文と同じ考え方（obstacle avoidanceをローカ�
   拠点基準の情報としての意味が崩れる）。詳細は下記「補給所(Station)と
   建設(build)」参照。
 
+## 地形(Terrain)とLIDAR風前方距離センサー
+
+boidが向いている方向(heading)に地形までの距離を知覚する、現実のLIDAR測距
+センサーに着想を得た仕組み。`docs/roadmap.md`のStage 2として導入した。
+
+- `Terrain`インターフェース（`src/terrain/types.ts`）は`isBlocked(pos): boolean`
+  だけを持つ最小限のもの。`World.terrain`は`Terrain | undefined`で、地形の
+  ないシナリオ（既存の収集・陣形・広域探索の3シナリオ）は`undefined`のまま。
+- 同ファイルの`raycast(terrain, origin, angle, maxRange, step=1)`関数が、
+  `isBlocked`だけを使って前方への距離計測を行う——`step`刻みで前進しながら
+  `isBlocked`を呼び、最初にぶつかった距離を返す（範囲内に何もなければ
+  `Infinity`）。DDA（Amanatides & Woo）のような厳密なセル境界計算はせず、
+  固定ステップの単純な線分マーチングだが、`PHYSICS.maxSpeed = 1`のこの
+  世界ではstep=1で十分な精度になる。**`Terrain`の実装は`isBlocked`さえ
+  満たせばよく、`raycast`はどの実装でも無料で使い回せる**——地形生成
+  アルゴリズムを後から追加・差し替えられるようにするための設計（例えば
+  将来マーチングスクエア方式に切り替える場合も、`isBlocked`の中身を
+  「格子点を双線形補間して閾値と比較」に差し替えるだけで、`raycast`・
+  呼び出し側は無変更で済む）。
+- `SelfView.frontDist`が、自分の正面(heading方向)への`raycast`結果
+  （探索距離は`PHYSICS.viewRadius`を流用。他の知覚対象と同じ「この個体が
+  知覚できる範囲」という意味で専用定数を増やしていない）。地形のない
+  シナリオ、または範囲内に障害物がなければ常に`Infinity`。
+- **地形生成アルゴリズム**: `src/terrain/cellularAutomata.ts`の
+  `generateCellularAutomataTerrain()`。標準的なセルオートマトン洞窟生成
+  （初期ランダム充填→近傍8マスの壁カウントによる多数決を反復）。
+  `research/20260811-terrain-generation-algorithms/README.md`で比較調査
+  済みで、レイキャストとの相性・実装コストの低さから採用した。
+  - `keepOpenAround`オプションで、生成後に指定座標の周辺を強制的に
+    床にできる（拠点周辺が生成結果次第で壁に囲まれて詰むのを防ぐため）。
+  - 生成直後に対角ピンチ除去(`removeDiagonalPinches`)を行う。2x2マスの
+    対角上に壁が2つ・もう一方の対角に床が2つ並ぶ形状（幅0の隙間しかない
+    のに点ベースの`isBlocked`判定では通り抜けられてしまう）を、片方の壁を
+    床にして解消する。**これを入れないと、raycastですり抜けて紛れ込んだ
+    袋小路から単純な反応的回避では二度と出られなくなる不具合が
+    headless検証で頻発した**（型チェック・ビルドは通っていても実際に
+    長時間走らせるまで気づけなかった、CLAUDE.mdに記録済みの過去の教訓と
+    同種のもの）。
+  - **地形の連結性（拠点から各資源まで到達可能か）は保証しない。**
+    生成結果によっては一部の資源が到達不能なマップができうる——検討時に
+    ユーザーの判断で一旦許容した既知の制約（フラッドフィルによる連結性
+    検証・再生成は今回のスコープ外）。
+- **衝突時は停止**（`speed = 0`、壁のように反射はしない）。`simulate.ts`の
+  `step()`で、次tickの移動先が`isBlocked`なら位置更新をスキップし
+  `boid.speed = 0`にする。headingの回転(`turn`)自体は燃料さえあれば
+  ブロックされない。ワールド境界の衝突（`bounceOffWalls`）とは独立した
+  別の仕組み——地形の格子範囲外は`isBlocked`が`false`を返すため、
+  ワールド境界の処理は従来通り`bounceOffWalls`の責務のまま。
+- 旋回(`turn`)自体に燃料コストは課していない（現状通り移動距離のみ消費）。
+  CLAUDE.mdの「頼まれていない難易度上昇要素を先回りして追加しない」方針
+  に従った判断。
+- LIDARはboid1体につき前方1本のみ（元々の提案「向きの方向に直線を引いて
+  距離を測定する」に最も忠実な形）。扇状に複数本にする拡張は将来の
+  検討事項として残っている。
+
 ## boidプログラムのインターフェース（`src/perception.ts`）
 
 ```ts
@@ -49,7 +104,9 @@ type Program = (self: SelfView, neighbors: NeighborView[], world: WorldView) => 
 ```
 
 - `SelfView`: 自分のID・速さ・運搬中の資源量・残燃料・内部メモリ（読み書き可、
-  長さ`MEMORY_SIZE`の`number[]`）。**絶対位置もheadingも含まれない。**
+  長さ`MEMORY_SIZE`の`number[]`）・`frontDist`（前方への地形raycast距離、
+  上記「地形(Terrain)とLIDAR風前方距離センサー」参照）。**絶対位置も
+  headingも含まれない。**
 - `NeighborView[]`: 視界内(`PHYSICS.viewRadius`)にいるboid/資源/拠点/補給所。
   heading基準ローカル座標系での相対位置・相対速度に加え、boidなら運搬中
   かどうか(`cargo`)・ID(`id`)・内部メモリ（読み取り専用）も見える。資源は
@@ -167,8 +224,11 @@ docコメント・`programs/util.ts`のコメント参照）。
 src/
   vec2.ts               2Dベクトル演算
   world.ts              World/Boid/ResourceNode/Base/Station の型定義、PHYSICS定数
+  terrain/
+    types.ts             Terrainインターフェース、raycast関数
+    cellularAutomata.ts   セルオートマトンによる地形生成器
   perception.ts         boidへの「知覚」の組み立て（絶対座標→相対情報の唯一の変換点）
-  simulate.ts           1tick分の更新（program呼び出し→物理→採取/搬入/受け渡し/建設）
+  simulate.ts           1tick分の更新（program呼び出し→物理→地形/壁衝突→採取/搬入/受け渡し/建設）
   render.ts             Canvas描画
   scenario.ts           Scenario共通インターフェース
   scenarios/*.ts         シナリオごとの初期配置・勝利条件
@@ -185,6 +245,7 @@ src/
 | 1 | 収集・搬入 (`scenarios/gather.ts`) | 最も単純な協調（探索・凝集・運搬）が成立するか | 資源を8個拠点に搬入（2700tick以内） | ✅ |
 | 2 | 隊列・陣形維持 (`scenarios/formation.ts`) | 局所ルールだけで陣形が自己組織化するか | 拠点周囲の半径35のリング陣形を維持 | ✅ |
 | 6 | 広域探索・実験 (`scenarios/frontier.ts`) | 資源の方向も初期位置も一切知らない状態で、フェロモンなしの分離則（Separation）による自己組織化的な拡散＋補給所建設だけで資源クラスタ（資源が集中して存在する地点、4箇所配置）を発見・回収できるか | 資源を5個、拠点または補給所に搬入（180000tick以内） | ✅ headless 10回中10勝（tick 445〜1264で勝利）。番号は導入順のなごりで3〜5は欠番（旧・中継リレー輸送/ラダー/補給線輸送、下記参照） |
+| 4 | 地形回避・実験 (`scenarios/terrain.ts`) | 前方1本のLIDAR風距離センサー(`SelfView.frontDist`)だけで、セルオートマトン生成の洞窟地形を反応的に回避しながら資源を運べるか | 資源を6個、拠点に搬入（9000tick以内） | ✅（実験的）headless 10回中4〜8勝（地形生成の乱数次第でばらつく）。連結性が保証されないため一部の資源が到達不能になったり、単純な反応的回避が局所的な停滞（局所解問題、[research/20260811-terrain-generation-algorithms/](../research/20260811-terrain-generation-algorithms/)で調査済みのAPFの既知の弱点と同種）にはまり込むことがある——既知の制約として許容 |
 
 **旧シナリオ「中継リレー輸送」「補給網拡張・ラダー」「補給線輸送」は削除済み。**
 heading基準のローカル座標系への移行に伴い、これら3シナリオが依存していた

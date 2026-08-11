@@ -2,6 +2,7 @@ import type { Vec2 } from './vec2';
 import { fromPolar, length, rotate, sub, zero } from './vec2';
 import type { Boid, World } from './world';
 import { PHYSICS } from './world';
+import { raycast } from './terrain/types';
 
 export type NeighborKind = 'boid' | 'resource' | 'base' | 'station';
 
@@ -33,6 +34,9 @@ export interface SelfView {
   cargo: number;
   fuel: number; // 残燃料
   memory: number[]; // 書き換え可能なコピー。simulateがtick後にboidへ書き戻す
+  // 自分の正面(heading方向)に地形までのLIDAR風レイキャストをした距離。
+  // 地形のないシナリオ、または範囲内に障害物がない場合はInfinity。
+  frontDist: number;
 }
 
 export interface WorldView {
@@ -52,8 +56,9 @@ export interface Action {
 
 export type Program = (self: SelfView, neighbors: NeighborView[], world: WorldView) => Action;
 
-export function buildSelfView(boid: Boid): SelfView {
-  return { id: boid.id, speed: boid.speed, cargo: boid.cargo, fuel: boid.fuel, memory: [...boid.memory] };
+export function buildSelfView(boid: Boid, world: World): SelfView {
+  const frontDist = world.terrain ? raycast(world.terrain, boid.pos, boid.heading, PHYSICS.viewRadius) : Infinity;
+  return { id: boid.id, speed: boid.speed, cargo: boid.cargo, fuel: boid.fuel, memory: [...boid.memory], frontDist };
 }
 
 export function buildWorldView(world: World): WorldView {

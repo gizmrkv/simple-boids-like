@@ -1,4 +1,5 @@
 import type { Vec2 } from './vec2';
+import type { Terrain } from './terrain/types';
 
 /** boidが内部に保持できるメモリのスロット数（読み書き可能な状態）。 */
 export const MEMORY_SIZE = 4;
@@ -49,6 +50,7 @@ export interface World {
   bases: Base[];
   stations: Station[]; // 建設され増減する補給所。bases/resourcesと違い実行中に増える
   stored: number; // 拠点・補給所を問わず搬入(drop)された資源の合計。グローバルに管理する
+  terrain?: Terrain; // 地形。ないシナリオではundefined（frontDistは常にInfinityになる）
 }
 
 let nextId = 0;

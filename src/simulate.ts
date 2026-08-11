@@ -7,7 +7,7 @@ import { createStation, PHYSICS } from './world';
 export function step(world: World, program: Program): void {
   // 1. 現在の状態を元に、全boid分のactionを先に集める（順序依存を避ける）
   const actions: Action[] = world.boids.map((boid) => {
-    const self = buildSelfView(boid);
+    const self = buildSelfView(boid, world);
     const neighbors = buildNeighbors(boid, world);
     const worldView = buildWorldView(world);
     const action = program(self, neighbors, worldView);
@@ -28,7 +28,12 @@ export function step(world: World, program: Program): void {
     }
 
     const prevPos = boid.pos;
-    boid.pos = add(boid.pos, fromPolar(boid.heading, boid.speed)); // 次tickの位置 = 現在位置 + 速度ベクトル
+    const nextPos = add(boid.pos, fromPolar(boid.heading, boid.speed)); // 次tickの位置 = 現在位置 + 速度ベクトル
+    if (world.terrain?.isBlocked(nextPos)) {
+      boid.speed = 0; // 地形に衝突: 反射はせず、今tickは移動しない
+    } else {
+      boid.pos = nextPos;
+    }
     bounceOffWalls(boid, world);
     boid.fuel = Math.max(0, boid.fuel - length(sub(boid.pos, prevPos)) * PHYSICS.fuelBurnRate);
 

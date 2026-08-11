@@ -36,8 +36,25 @@ function supplyLineEdges(world: World): { from: Vec2; to: Vec2 }[] {
   return edges;
 }
 
+// 地形の可視化用サンプリング間隔。生成器のcellSizeとは独立でよい
+// （TerrainインターフェースはisBlockedしか公開しないため、これで十分）。
+const TERRAIN_SAMPLE_STEP = 5;
+
+function drawTerrain(ctx: CanvasRenderingContext2D, world: World): void {
+  if (!world.terrain) return;
+  ctx.fillStyle = '#495057';
+  for (let y = 0; y < world.height; y += TERRAIN_SAMPLE_STEP) {
+    for (let x = 0; x < world.width; x += TERRAIN_SAMPLE_STEP) {
+      if (world.terrain.isBlocked({ x, y })) {
+        ctx.fillRect(x, y, TERRAIN_SAMPLE_STEP, TERRAIN_SAMPLE_STEP);
+      }
+    }
+  }
+}
+
 export function render(ctx: CanvasRenderingContext2D, world: World, showViewRadius = false): void {
   ctx.clearRect(0, 0, world.width, world.height);
+  drawTerrain(ctx, world);
 
   for (const base of world.bases) {
     ctx.fillStyle = '#4dabf7';

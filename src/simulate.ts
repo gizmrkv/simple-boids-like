@@ -1,6 +1,8 @@
-import { add, fromPolar, length, sub } from './vec2';
+import { fromPolar, length, sub } from './vec2';
+import type { Vec2 } from './vec2';
 import type { Action, Program } from './perception';
 import { buildNeighbors, buildSelfView, buildWorldView } from './perception';
+import type { Terrain } from './terrain/types';
 import type { World } from './world';
 import { createStation, PHYSICS } from './world';
 
@@ -19,21 +21,17 @@ export function step(world: World, program: Program): void {
   world.boids.forEach((boid, i) => {
     const action = actions[i];
 
-    // 燃料切れの間はheading・speedとも変更できず停止する（無料での旋回もできない）
-    if (boid.fuel > 0) {
-      boid.heading += action.turn;
-      boid.speed = Math.min(Math.max(action.speed, 0), PHYSICS.maxSpeed);
-    } else {
-      boid.speed = 0;
-    }
+    // 燃料切れ中も旋回は制限なし。速度だけmaxSpeedのemptyFuelSpeedRatio倍まで
+    // に制限される（Factorioのロボットが電力不足時に速度低下するのと同じ
+    // 発想。以前は完全停止だったが、ユーザーの要求で「遅くなるが動ける」に
+    // 変更した）。
+    const speedCap = boid.fuel > 0 ? PHYSICS.maxSpeed : PHYSICS.maxSpeed * PHYSICS.emptyFuelSpeedRatio;
+    boid.heading += action.turn;
+    boid.speed = Math.min(Math.max(action.speed, 0), speedCap);
 
     const prevPos = boid.pos;
-    const nextPos = add(boid.pos, fromPolar(boid.heading, boid.speed)); // 次tickの位置 = 現在位置 + 速度ベクトル
-    if (world.terrain?.isBlocked(nextPos)) {
-      boid.speed = 0; // 地形に衝突: 反射はせず、今tickは移動しない
-    } else {
-      boid.pos = nextPos;
-    }
+    const vel = fromPolar(boid.heading, boid.speed);
+    boid.pos = moveWithTerrain(boid.pos, vel, world.terrain);
     bounceOffWalls(boid, world);
     boid.fuel = Math.max(0, boid.fuel - length(sub(boid.pos, prevPos)) * PHYSICS.fuelBurnRate);
 
@@ -82,6 +80,25 @@ export function step(world: World, program: Program): void {
   });
 
   world.tick += 1;
+}
+
+// 地形に衝突したら停止するのではなく、速度ベクトルのうち壁と平行な成分
+// （X軸・Y軸のうちブロックされていない方）だけを採用してズリズリ壁沿いに
+// 動く。タイルベースの当たり判定でよく使われる、X軸・Y軸を分離して個別に
+// 試す方式（対角移動がブロックされていても、片方の軸だけなら通ることが
+// 多い）。両軸ともブロックされる場合（完全に行き止まり）だけ動かない。
+function moveWithTerrain(pos: Vec2, vel: Vec2, terrain: Terrain | undefined): Vec2 {
+  if (!terrain) return { x: pos.x + vel.x, y: pos.y + vel.y };
+
+  const both = { x: pos.x + vel.x, y: pos.y + vel.y };
+  if (!terrain.isBlocked(both)) return both;
+
+  const onlyX = { x: pos.x + vel.x, y: pos.y };
+  const onlyY = { x: pos.x, y: pos.y + vel.y };
+  return {
+    x: terrain.isBlocked(onlyX) ? pos.x : onlyX.x,
+    y: terrain.isBlocked(onlyY) ? pos.y : onlyY.y,
+  };
 }
 
 // 境界に当たった場合のみ、反射後の速度ベクトルからheadingを再計算する

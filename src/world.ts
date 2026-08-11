@@ -11,6 +11,7 @@ export const PHYSICS = {
   maxFuel: 260, // 移動できる総距離の上限。拠点に近づくと全回復する
   fuelBurnRate: 1, // 単位距離あたりの燃料消費量
   maxLineLength: 100, // 既存の拠点/補給所からこの距離以内でないと新しい補給所を建設できない
+  emptyFuelSpeedRatio: 0.2, // 燃料切れ中、maxSpeedに対してこの割合まで速度を出せる（旋回は制限なし）
 };
 
 export interface Boid {

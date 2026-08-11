@@ -128,6 +128,18 @@ const FUEL_RETURN_RATIO = 0.5; // relay.tsと同じ値。残燃料がこの割�
  * 見えていなければ逆dead reckoningで最後に触れたアンカーへ直進」する緊急
  * 帰還モードに切り替える。アンカーへの直進は他boidの分離力による多方向からの
  * 干渉を受けなくなるため、確実に`interactRadius`内へ到達でき燃料が回復する。
+ *
+ * 【燃料切れ中の減速とdead reckoningのズレ（ヘッドレスで発見した不具合）】
+ * simulate.tsは燃料切れ中、boidの実速度をPHYSICS.maxSpeed×emptyFuelSpeedRatio
+ * （既定20%）にクランプする（以前は完全停止だったが、ユーザーの要求で
+ * 「遅くなるが動ける」に変更された）。これに合わせずdead reckoningの更新に
+ * `action.speed`（プログラムが要求した、クランプ前の速度）をそのまま使うと、
+ * 「本当は0.2しか進んでいないのに1.0進んだ前提でhomeDir（家の方向）を
+ * 計算し続ける」ズレが毎tick蓄積する。このズレの積分は数学的に不安定な
+ * 2周期振動（`turn`が毎tick約180°反転し、正味の移動量がゼロになる）に
+ * 収束することが判明した——燃料切れ中に何十tickも同じ場所で足踏みし続ける
+ * 形で表面化する。dead reckoning更新の直前でエンジンと同じ速度上限を適用
+ * することで解消している。
  */
 export const frontierProgram: Program = (self, neighbors) => {
   const wasIntending = self.memory[INTENT_SLOT] === 1;
@@ -192,7 +204,15 @@ export const frontierProgram: Program = (self, neighbors) => {
   const build = wantsToBuild && wasIntending && isLocalMax(self.id, intendingPeers);
 
   const action = toAction(steer);
-  updateDeadReckoning(self.memory, action.turn, action.speed);
+  // dead reckoningの更新にはエンジンが実際に適用する速度を使わないと、
+  // memoryの推定がボイド自身の実際の移動とズレていく。燃料切れ中は
+  // エンジン側(simulate.ts)がspeedをPHYSICS.maxSpeed*emptyFuelSpeedRatioに
+  // クランプするため、ここでも同じ上限を適用してから積算する（そうしないと
+  // 「実際には少ししか動いていないのに、動いた前提でhomeDirを計算し続け、
+  // 数tickで180°反転を繰り返す振動に陥る」不具合が燃料切れ時に起きる—
+  // ヘッドレス検証で発見）。
+  const speedCap = self.fuel > 0 ? PHYSICS.maxSpeed : PHYSICS.maxSpeed * PHYSICS.emptyFuelSpeedRatio;
+  updateDeadReckoning(self.memory, action.turn, Math.min(action.speed, speedCap));
 
   return { ...action, harvest, drop, build };
 };

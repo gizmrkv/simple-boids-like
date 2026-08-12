@@ -2,7 +2,7 @@ import type { Vec2 } from './vec2';
 import type { Terrain } from './terrain/types';
 
 /** boidが内部に保持できるメモリのスロット数（読み書き可能な状態）。 */
-export const MEMORY_SIZE = 4;
+export const MEMORY_SIZE = 32;
 
 export const PHYSICS = {
   maxSpeed: 1, // 1tickで動ける距離の上限（速度ベクトルの大きさの上限）

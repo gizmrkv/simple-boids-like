@@ -7,7 +7,10 @@ const SAFE_DIST = 15; // これを下回ったら壁沿い走行(wall-following)
 const WALL_TURN_STEP = 0.2; // 壁沿い走行中、1tickごとに固定方向へ回転する角度
 const MAX_SEEK_TURN = 0.3; // 目標へ向かうとき、1tickあたりの旋回量の上限（暴走防止）
 const BUILD_MARGIN = 0.75; // frontier.tsと同じ値・同じ理由（余裕を持ってmaxLineLength手前で建てる）
-const FUEL_RETURN_RATIO = 0.5; // frontier.ts/relay.tsと同じ値。残燃料がこの割合を切ったら帰還を優先する
+// 残燃料での走行可能距離(fuel/fuelBurnRate)が「最寄りアンカーまでの直線距離×
+// この係数」を下回ったら緊急帰還する。1より大きくしているのは、壁沿い走行の
+// 迂回で実移動距離が直線距離より伸びるぶんの安全マージン。
+const FUEL_SAFETY_MARGIN = 1.3;
 const SEPARATION_MAX_TURN = 0.08; // 弱め。壁沿い走行(0.2/tick)より小さい摂動に留める
 // memory[3]: 建設意思表示。frontier.tsはmemory[2]を使うが、このプログラムは
 // memory[2]を壁沿い走行の回転方向(handedness)に使っているため、空いている
@@ -105,7 +108,13 @@ export const terrainProgram: Program = (self, neighbors) => {
   const rememberedTarget = { x: self.memory[REMEMBERED_TARGET_X], y: self.memory[REMEMBERED_TARGET_Y] };
 
   const homeVec = { x: -self.memory[0], y: -self.memory[1] };
-  const lowFuel = self.fuel < PHYSICS.maxFuel * FUEL_RETURN_RATIO;
+  // 燃料は距離1単位あたりfuelBurnRateだけ減る(simulate.ts参照)ため、速さに
+  // 依存せず「残り走行可能距離」に換算できる。それを最寄りアンカーまでの
+  // 直線距離(視界内に見えていればそのrelPos長、見えていなければdead
+  // reckoningのhomeVec長)と比較する。
+  const anchorDist = anchors.length > 0 ? length(closest(anchors).relPos) : length(homeVec);
+  const remainingRange = self.fuel / PHYSICS.fuelBurnRate;
+  const lowFuel = remainingRange < anchorDist * FUEL_SAFETY_MARGIN;
 
   // goalVecは正規化前の「行き先」ベクトル。方向(steer/goalTurn)だけでなく
   // 距離(goalDist)も後段のエスケープ判定に必要なため、ここでは正規化しない。
@@ -128,11 +137,10 @@ export const terrainProgram: Program = (self, neighbors) => {
     goalVec = rememberedTarget;
     hasGoal = true;
   } else if (lowFuel) {
-    // frontier.tsの緊急帰還と同じ考え方。壁沿い走行の迂回で実移動距離が
-    // dead reckoningの正味変位より伸び、maxLineLength基準の補給所建設だけ
-    // では間に合わず燃料切れ孤立に陥るケースへの備え。
+    // lowFuelの判定式(上のanchorDist/remainingRange)自体がfrontier.tsより
+    // 精緻な帰還タイミング判断で、目指す先はそこで使ったのと同じアンカーになる。
     goalVec = anchors.length > 0 ? closest(anchors).relPos : homeVec;
-    hasGoal = length(goalVec) > 0;
+    hasGoal = anchorDist > 0;
   }
   // 目標が何もない場合（資源も見えず、cargo===0、燃料も十分）はhasGoal=false
   // のまま（goalTurn=0で直進、下の壁沿いモードが自然に探索してくれる）。

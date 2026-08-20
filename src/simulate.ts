@@ -1,10 +1,10 @@
-import { fromPolar, length, sub } from './vec2';
+import { add, fromPolar, length, scale, sub, zero } from './vec2';
 import type { Vec2 } from './vec2';
 import type { Action, Program } from './perception';
 import { buildNeighbors, buildSelfView, buildWorldView } from './perception';
 import type { Terrain } from './terrain/types';
 import type { World } from './world';
-import { createStation, PHYSICS } from './world';
+import { CARRY_RADIUS, createStation, PHYSICS } from './world';
 
 export function step(world: World, program: Program): void {
   // 1. 現在の状態を元に、全boid分のactionを先に集める（順序依存を避ける）
@@ -77,6 +77,30 @@ export function step(world: World, program: Program): void {
     ) {
       boid.fuel = PHYSICS.maxFuel;
     }
+  });
+
+  // 3. 協調搬送資源: フェーズ1のactions（tick開始時点のcarry意思表示）と
+  //    フェーズ2適用後のboid位置/heading/speedを使い、requiredCarriers体以上が
+  //    同時にCARRY_RADIUS内でcarry:trueなら実速度の平均で資源を動かす。
+  world.heavyResources = world.heavyResources.filter((hr) => {
+    const carrierIndices = world.boids
+      .map((_, i) => i)
+      .filter((i) => actions[i].carry && length(sub(world.boids[i].pos, hr.pos)) <= CARRY_RADIUS);
+
+    if (carrierIndices.length >= hr.requiredCarriers) {
+      const vels = carrierIndices.map((i) => fromPolar(world.boids[i].heading, world.boids[i].speed));
+      const avgVel = scale(vels.reduce((acc, v) => add(acc, v), zero()), 1 / vels.length);
+      hr.pos = { x: hr.pos.x + avgVel.x, y: hr.pos.y + avgVel.y };
+      hr.pos.x = Math.min(Math.max(hr.pos.x, 0), world.width);
+      hr.pos.y = Math.min(Math.max(hr.pos.y, 0), world.height);
+    }
+
+    const delivered = nearestWithin(hr.pos, [...world.bases, ...world.stations], PHYSICS.interactRadius);
+    if (delivered) {
+      world.stored += 1;
+      return false;
+    }
+    return true;
   });
 
   world.tick += 1;

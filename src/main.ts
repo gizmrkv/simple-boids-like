@@ -1,6 +1,7 @@
 import './style.css';
 import { render } from './render';
 import type { Scenario } from './scenario';
+import { carryScenario } from './scenarios/carry';
 import { formationScenario } from './scenarios/formation';
 import { frontierScenario } from './scenarios/frontier';
 import { gatherScenario } from './scenarios/gather';
@@ -8,7 +9,7 @@ import { terrainScenario } from './scenarios/terrain';
 import { step } from './simulate';
 import type { World } from './world';
 
-const SCENARIOS: Scenario[] = [gatherScenario, formationScenario, frontierScenario, terrainScenario];
+const SCENARIOS: Scenario[] = [gatherScenario, formationScenario, frontierScenario, terrainScenario, carryScenario];
 
 const controls = document.querySelector<HTMLDivElement>('#controls')!;
 const statusEl = document.querySelector<HTMLDivElement>('#status')!;

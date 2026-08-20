@@ -4,7 +4,7 @@ import type { Boid, World } from './world';
 import { PHYSICS } from './world';
 import { raycast } from './terrain/types';
 
-export type NeighborKind = 'boid' | 'resource' | 'base' | 'station';
+export type NeighborKind = 'boid' | 'resource' | 'base' | 'station' | 'heavy';
 
 export interface NeighborView {
   kind: NeighborKind;
@@ -52,6 +52,7 @@ export interface Action {
   drop?: boolean; // interactRadius内の拠点へ搬入を試みる
   handoff?: boolean; // interactRadius内の空荷の他boidへ荷物を手渡す（リレー用）
   build?: boolean; // maxLineLength内に拠点/補給所があれば新しい補給所を建設する（コストなし）
+  carry?: boolean; // interactRadius内の重量資源(heavy)を一緒に運ぼうとする意思表示
 }
 
 export type Program = (self: SelfView, neighbors: NeighborView[], world: WorldView) => Action;
@@ -96,6 +97,12 @@ export function buildNeighbors(boid: Boid, world: World): NeighborView[] {
     const relPos = sub(base.pos, boid.pos);
     if (length(relPos) > r) continue;
     neighbors.push({ kind: 'base', relPos: toLocal(relPos), relVel: toLocal(sub(zero(), boidVel)) });
+  }
+
+  for (const hr of world.heavyResources) {
+    const relPos = sub(hr.pos, boid.pos);
+    if (length(relPos) > r) continue;
+    neighbors.push({ kind: 'heavy', relPos: toLocal(relPos), relVel: toLocal(sub(zero(), boidVel)) });
   }
 
   const homeBase = world.bases[0]; // 単一拠点前提（既存シナリオは全て拠点1つ）

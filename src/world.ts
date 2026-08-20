@@ -42,6 +42,19 @@ export interface Station {
   // 「建設時点の推定値をずっと保持している」状態を避けるため。
 }
 
+export interface HeavyResource {
+  id: number;
+  pos: Vec2;
+  requiredCarriers: number; // このboid数以上が同時にCARRY_RADIUS内でcarry:trueにしないと動かない
+}
+
+// interactRadius(8)はmaxSpeed(1)に対して狭く、資源を押して動かした直後に
+// そのboid自身がinteractRadius外へ出てしまい、次tickに「離れすぎた」と
+// 判定されて押すのをやめてしまう境界振動が起きる（headless検証で発見）。
+// 協調搬送中の結合判定だけは、この振動が起きない程度に余裕を持たせた
+// 専用の半径を使う。
+export const CARRY_RADIUS = 20;
+
 export interface World {
   width: number;
   height: number;
@@ -50,6 +63,7 @@ export interface World {
   resources: ResourceNode[];
   bases: Base[];
   stations: Station[]; // 建設され増減する補給所。bases/resourcesと違い実行中に増える
+  heavyResources: HeavyResource[]; // 複数boidの協調搬送でのみ動く資源
   stored: number; // 拠点・補給所を問わず搬入(drop)された資源の合計。グローバルに管理する
   terrain?: Terrain; // 地形。ないシナリオではundefined（frontDistは常にInfinityになる）
 }
@@ -83,6 +97,10 @@ export function createStation(pos: Vec2): Station {
   return { id: freshId(), pos };
 }
 
+export function createHeavyResource(pos: Vec2, requiredCarriers: number): HeavyResource {
+  return { id: freshId(), pos, requiredCarriers };
+}
+
 export function createWorld(width: number, height: number): World {
-  return { width, height, tick: 0, boids: [], resources: [], bases: [], stations: [], stored: 0 };
+  return { width, height, tick: 0, boids: [], resources: [], bases: [], stations: [], heavyResources: [], stored: 0 };
 }

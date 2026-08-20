@@ -89,6 +89,11 @@ export function render(ctx: CanvasRenderingContext2D, world: World, showViewRadi
     ctx.fill();
   }
 
+  for (const hr of world.heavyResources) {
+    ctx.fillStyle = '#ff922b';
+    ctx.fillRect(hr.pos.x - 8, hr.pos.y - 8, 16, 16);
+  }
+
   if (showViewRadius) {
     ctx.strokeStyle = 'rgba(34, 211, 238, 0.2)';
     ctx.lineWidth = 1;

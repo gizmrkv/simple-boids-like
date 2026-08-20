@@ -14,11 +14,13 @@ export interface NeighborView {
   relPos: Vec2;
   relVel: Vec2; // 同じくローカル座標系での相対速度（資源・拠点は静止している）
   amount?: number; // resource: 残量
+  requiredCarriers?: number; // kind === 'heavy' のときだけ、協調搬送に必要な人数
   cargo?: number; // kind === 'boid' のときだけ、荷物を運んでいるか（外から見てわかる情報として）
   memory?: readonly number[]; // kind === 'boid' のときだけ、読み取り専用スナップショット
-  // kind === 'boid' のときだけ設定。cargoと同じく固定・観測可能な属性で、絶対位置の
-  // 情報は一切含まない。役割分担（リーダー選出など）に使える狭い追加情報——memoryの
-  // ように毎tick手動でブロードキャストする必要はない。
+  // kind === 'boid' または 'heavy' のときだけ設定。cargoと同じく固定・観測可能な
+  // 属性で、絶対位置の情報は一切含まない。役割分担（リーダー選出など）や、
+  // memoryのブロードキャストで「どの対象について言っているか」を照合するのに
+  // 使える狭い追加情報——memoryのように毎tick手動でブロードキャストする必要はない。
   id?: number;
   // kind === 'station' のときだけ設定。station.pos - 拠点.pos を「今」計算した値
   // （stationオブジェクト自体には持たせない）。知覚元boidの位置にもheadingにも
@@ -102,7 +104,13 @@ export function buildNeighbors(boid: Boid, world: World): NeighborView[] {
   for (const hr of world.heavyResources) {
     const relPos = sub(hr.pos, boid.pos);
     if (length(relPos) > r) continue;
-    neighbors.push({ kind: 'heavy', relPos: toLocal(relPos), relVel: toLocal(sub(zero(), boidVel)) });
+    neighbors.push({
+      kind: 'heavy',
+      relPos: toLocal(relPos),
+      relVel: toLocal(sub(zero(), boidVel)),
+      id: hr.id,
+      requiredCarriers: hr.requiredCarriers,
+    });
   }
 
   const homeBase = world.bases[0]; // 単一拠点前提（既存シナリオは全て拠点1つ）

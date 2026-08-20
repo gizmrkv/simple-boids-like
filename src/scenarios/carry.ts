@@ -5,8 +5,13 @@ import { createBase, createBoid, createHeavyResource, createWorld } from '../wor
 const WIDTH = 500;
 const HEIGHT = 350;
 const BOID_COUNT = 6;
-const WIN_AMOUNT = 2;
-const MAX_TICKS = 60 * 90; // 90秒 @ 60fps相当
+// 資源requiredCarriers=2のペアがboid数の半分(3組)しか同時には組めないのに対し
+// 資源を4個にすることで、単純な最寄り選択だと1体だけの資源が生じて詰む状況を
+// 意図的に作る（ユーザーの提案）。全て届けるには、先に届け終えたペアが手の空いた
+// 資源へ合流し直す必要がある。
+const HEAVY_COUNT = 4;
+const WIN_AMOUNT = HEAVY_COUNT;
+const MAX_TICKS = 60 * 150; // 初期値。headless実行の結果を見て調整する
 
 // boidのspawn・資源配置とも、拠点中心からviewRadius(60)に収まる範囲でランダム化
 // する。「協調搬送」というメカニクス自体の検証が目的で、探索の難しさは別の
@@ -21,13 +26,13 @@ const RESOURCE_DIST_MAX = 42;
 export const carryScenario: Scenario = {
   id: 'carry',
   name: '5. 協調搬送',
-  description: `2体同時でないと動かせない資源(requiredCarriers=2)を拠点まで運ぶ。${WIN_AMOUNT}個搬入で成功。`,
+  description: `2体同時でないと動かせない資源(requiredCarriers=2)が${HEAVY_COUNT}個。boid${BOID_COUNT}体では同時に${Math.floor(BOID_COUNT / 2)}組しか組めないため、全${WIN_AMOUNT}個の搬入には合流先の交渉が必要。`,
   createWorld: () => {
     const world = createWorld(WIDTH, HEIGHT);
     const center = { x: WIDTH / 2, y: HEIGHT / 2 };
     world.bases.push(createBase(center));
 
-    for (let i = 0; i < WIN_AMOUNT; i++) {
+    for (let i = 0; i < HEAVY_COUNT; i++) {
       const angle = Math.random() * Math.PI * 2;
       const dist = RESOURCE_DIST_MIN + Math.random() * (RESOURCE_DIST_MAX - RESOURCE_DIST_MIN);
       world.heavyResources.push(

@@ -82,10 +82,28 @@ export function step(world: World, program: Program): void {
   // 3. 協調搬送資源: フェーズ1のactions（tick開始時点のcarry意思表示）と
   //    フェーズ2適用後のboid位置/heading/speedを使い、requiredCarriers体以上が
   //    同時にCARRY_RADIUS内でcarry:trueなら実速度の平均で資源を動かす。
-  world.heavyResources = world.heavyResources.filter((hr) => {
-    const carrierIndices = world.boids
-      .map((_, i) => i)
-      .filter((i) => actions[i].carry && length(sub(world.boids[i].pos, hr.pos)) <= CARRY_RADIUS);
+  //    carry:trueなboidは、CARRY_RADIUS内にある複数の重量資源のうち最も近い
+  //    1つだけに割り当てる(programs内のclosest()と同じ考え方)。2つの重量資源が
+  //    近接していると、1体のboidが両方に同時にカウントされてしまい、それぞれの
+  //    平均速度が混ざり合ってどちらも動かなくなる不具合をheadless検証で発見した
+  //    (Action.carryはboidにつき1個のフラグで、資源ごとではないため)。
+  const heavies = world.heavyResources;
+  const assignedResourceIndex: (number | null)[] = world.boids.map((boid, i) => {
+    if (!actions[i].carry) return null;
+    let best: number | null = null;
+    let bestDist = CARRY_RADIUS;
+    heavies.forEach((hr, hi) => {
+      const d = length(sub(boid.pos, hr.pos));
+      if (d <= bestDist) {
+        best = hi;
+        bestDist = d;
+      }
+    });
+    return best;
+  });
+
+  world.heavyResources = heavies.filter((hr, hi) => {
+    const carrierIndices = world.boids.map((_, i) => i).filter((i) => assignedResourceIndex[i] === hi);
 
     if (carrierIndices.length >= hr.requiredCarriers) {
       const vels = carrierIndices.map((i) => fromPolar(world.boids[i].heading, world.boids[i].speed));

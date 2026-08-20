@@ -54,7 +54,11 @@ export interface Action {
   drop?: boolean; // interactRadius内の拠点へ搬入を試みる
   handoff?: boolean; // interactRadius内の空荷の他boidへ荷物を手渡す（リレー用）
   build?: boolean; // maxLineLength内に拠点/補給所があれば新しい補給所を建設する（コストなし）
-  carry?: boolean; // interactRadius内の重量資源(heavy)を一緒に運ぼうとする意思表示
+  // 運ぼうとしている重量資源(heavy)のid。boolean(意思表示のみ)ではなく
+  // 「どの資源を」を明示する。視界内に重量資源が複数あるとき、単なる
+  // boolean+距離だけでは「最も近い資源」に取り違えてカウントされてしまう
+  // (headless検証で発見、simulate.tsのコメント参照)。
+  carry?: number;
 }
 
 export type Program = (self: SelfView, neighbors: NeighborView[], world: WorldView) => Action;

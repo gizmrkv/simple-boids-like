@@ -81,29 +81,17 @@ export function step(world: World, program: Program): void {
 
   // 3. 協調搬送資源: フェーズ1のactions（tick開始時点のcarry意思表示）と
   //    フェーズ2適用後のboid位置/heading/speedを使い、requiredCarriers体以上が
-  //    同時にCARRY_RADIUS内でcarry:trueなら実速度の平均で資源を動かす。
-  //    carry:trueなboidは、CARRY_RADIUS内にある複数の重量資源のうち最も近い
-  //    1つだけに割り当てる(programs内のclosest()と同じ考え方)。2つの重量資源が
-  //    近接していると、1体のboidが両方に同時にカウントされてしまい、それぞれの
-  //    平均速度が混ざり合ってどちらも動かなくなる不具合をheadless検証で発見した
-  //    (Action.carryはboidにつき1個のフラグで、資源ごとではないため)。
-  const heavies = world.heavyResources;
-  const assignedResourceIndex: (number | null)[] = world.boids.map((boid, i) => {
-    if (!actions[i].carry) return null;
-    let best: number | null = null;
-    let bestDist = CARRY_RADIUS;
-    heavies.forEach((hr, hi) => {
-      const d = length(sub(boid.pos, hr.pos));
-      if (d <= bestDist) {
-        best = hi;
-        bestDist = d;
-      }
-    });
-    return best;
-  });
-
-  world.heavyResources = heavies.filter((hr, hi) => {
-    const carrierIndices = world.boids.map((_, i) => i).filter((i) => assignedResourceIndex[i] === hi);
+  //    同時にCARRY_RADIUS内で「同じ資源id」をcarryしているなら実速度の平均で
+  //    資源を動かす。carryは資源idそのもの(boolean意思表示ではない)なので、
+  //    どの資源への意思表示かはactionから直接わかる——「最も近い資源に割り当てる」
+  //    という推測は不要（以前はboolean+距離による推測をしていたが、視界内に
+  //    複数の重量資源があるとboidが意図した資源とは別の、たまたま近い方の
+  //    資源にカウントされてしまう不具合をheadless検証で発見したため、
+  //    Action.carryをboolean からid直接指定に変更した）。
+  world.heavyResources = world.heavyResources.filter((hr) => {
+    const carrierIndices = world.boids
+      .map((_, i) => i)
+      .filter((i) => actions[i].carry === hr.id && length(sub(world.boids[i].pos, hr.pos)) <= CARRY_RADIUS);
 
     if (carrierIndices.length >= hr.requiredCarriers) {
       const vels = carrierIndices.map((i) => fromPolar(world.boids[i].heading, world.boids[i].speed));

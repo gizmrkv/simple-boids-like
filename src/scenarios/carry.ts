@@ -40,10 +40,14 @@ export const carryScenario: Scenario = {
       );
     }
 
+    // 2体ずつ固定ペア(小隊)を組ませ、programs/carry.tsのcohesion/separationが
+    // 機能するようmemory[4]に小隊idを書き込む(プログラム側は読むだけ)。
     for (let i = 0; i < BOID_COUNT; i++) {
       const angle = Math.random() * Math.PI * 2;
       const r = BOID_SPAWN_RADIUS_MIN + Math.random() * (BOID_SPAWN_RADIUS_MAX - BOID_SPAWN_RADIUS_MIN);
-      world.boids.push(createBoid({ x: center.x + Math.cos(angle) * r, y: center.y + Math.sin(angle) * r }));
+      const boid = createBoid({ x: center.x + Math.cos(angle) * r, y: center.y + Math.sin(angle) * r });
+      boid.memory[4] = Math.floor(i / 2);
+      world.boids.push(boid);
     }
     return world;
   },

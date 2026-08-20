@@ -1,9 +1,12 @@
 import type { NeighborView, Program } from '../perception';
-import { length, normalize, scale, sub, zero } from '../vec2';
+import { add, length, normalize, scale, sub, zero } from '../vec2';
 import { CARRY_RADIUS, PHYSICS } from '../world';
 import { closest, toAction, updateDeadReckoning } from './util';
 
 const NO_TARGET = -1; // memory[3]の「対象なし」を表す値。資源idは常に0以上のため衝突しない
+const COHESION_MIN_DIST = CARRY_RADIUS; // これより近ければ小隊の結合力を働かせない（既に十分近いため）
+const COHESION_WEIGHT = 0.5; // 結合力の重み（直進バイアスに対する相対的な強さ）
+const EXPLORE_JITTER = 0.1; // 直進探索中に毎tick加える横揺れの大きさ（壁際の反射ループ対策）
 
 /**
  * 重量資源(heavy)を見つけて拠点まで運ぶ。requiredCarriers体以上が同時に
@@ -26,9 +29,19 @@ const NO_TARGET = -1; // memory[3]の「対象なし」を表す値。資源id�
  * 資源の数がboidのペア数を上回ると詰む。これを避けるため、「今どの資源に
  * 向かっているか(id)」をmemory[3]で常時ブロードキャストし、他boidはそれを
  * 見て「あと1人で成立する資源」を最優先、「まだ誰もいない資源」を次点、
- * 「既に足りている資源」を避ける、という優先順位で対象を選ぶ。視界内で
- * 完結する狭い情報からの意思決定だが、資源はいずれも拠点からviewRadius内に
- * 配置されるシナリオ設計のため、拠点付近にいれば全資源の状況を俯瞰できる。
+ * 「既に足りている資源」を避ける、という優先順位で対象を選ぶ。
+ *
+ * 【小隊による探索(結合＋分離)】この交渉は「視界内に複数の資源が同時に
+ * 見えている」ことが前提だが、資源を拠点から遠く・広く散らばらせると
+ * viewRadius(60)では一度に1個しか見えなくなり、離れた場所で1体が資源を
+ * 見つけても交渉相手が誰も近くにいなければ孤立してしまう。この対策として、
+ * 2体ずつの固定ペア（小隊、memory[4]に同じ値を持つ）を組ませ、資源が
+ * 見えていない探索中はReynoldsのboidsアルゴリズムの結合(cohesion、同じ
+ * 小隊のboidへ寄る)＋分離(separation、別小隊のboidから離れる、frontier.ts
+ * と同じ式)を使う。小隊で固まって動けば、誰かが資源を見つけた瞬間に
+ * ペアの相方もほぼ確実に近くにいるため、遠くの資源でも即座に2体で合流
+ * できる。分離により3小隊が互いに違う方向へ散らばりやすくもなる。
+ * 小隊idはscenario側がspawn時にmemory[4]へ書き込む（プログラム側は読むだけ）。
  */
 export const carryProgram: Program = (self, neighbors) => {
   const heavies = neighbors.filter((n) => n.kind === 'heavy');
@@ -36,7 +49,7 @@ export const carryProgram: Program = (self, neighbors) => {
   const boids = neighbors.filter((n) => n.kind === 'boid');
 
   let steer = zero();
-  let carry = false;
+  let carry: number | undefined;
   let committed = self.memory[2] > 0;
   let targetId = self.memory[3];
 
@@ -47,14 +60,26 @@ export const carryProgram: Program = (self, neighbors) => {
 
   if (committed) {
     const hr = heavies.find((h) => h.id === targetId);
-    if (hr && length(hr.relPos) <= CARRY_RADIUS) {
+    // 相方(同じ資源へ向かっている他boid)が実際にCARRY_RADIUS内にまだ
+    // いるかを毎tick確認する。相方が別の理由で離脱すると、資源自体は
+    // (2体そろわないため)動かず静止したままなのに、自分だけは
+    // 「運搬中のつもり」でsteerHome()に従って資源から遠ざかり続けて
+    // しまい、CARRY_RADIUSを超過するまでの間(最大約20tick)無駄に離れて
+    // いく不具合をheadless検証で発見した。この即時チェックで1tickで
+    // 諦め直せるようにする。
+    const required = hr?.requiredCarriers ?? 2;
+    const nearbyHelpers =
+      hr && boids.filter((b) => b.memory?.[3] === targetId && length(sub(b.relPos, hr.relPos)) <= CARRY_RADIUS).length;
+    const stillStaffed = hr !== undefined && (nearbyHelpers ?? 0) + 1 >= required;
+
+    if (hr && length(hr.relPos) <= CARRY_RADIUS && stillStaffed) {
       // 運搬中: 「拠点そのもの」ではなく「資源から見た拠点の方向」を目指す。
       // boid自身が先に拠点へ着いてしまうと(資源はまだ手前)、boid→拠点の
       // ベクトルがほぼゼロになり停止してしまう不具合をheadless検証で発見した。
-      carry = true;
+      carry = targetId;
       steer = steerHome(hr);
     } else {
-      // 運搬中だった資源を見失った(離れすぎた、または搬入済みで消滅した):
+      // 運搬中だった資源を見失った(離れすぎた・搬入済みで消滅・相方が離脱):
       // 諦めて次tickに合流先を選び直す
       committed = false;
       targetId = NO_TARGET;
@@ -62,12 +87,24 @@ export const carryProgram: Program = (self, neighbors) => {
   }
 
   if (!committed) {
-    if (heavies.length > 0) {
-      const scored = heavies.map((hr) => {
+    // 既にrequiredCarriers体以上が向かっている資源は最初から対象外にする。
+    // 当初は「視界内で最も優先度が高いものを選ぶ」だけだったが、視界内に
+    // それしか見えていない場合、既に足りている(運搬中で動いている)資源を
+    // 追いかけ続けてしまい、動く対象を同じ速さで追うため追いつけず延々と
+    // 浪費する不具合をheadless検証で発見した。この場合はその資源を無視して
+    // 探索へ回るべき。
+    const viable = heavies.filter((hr) => {
+      const required = hr.requiredCarriers ?? 2;
+      const helpers = boids.filter((b) => b.memory?.[3] === hr.id).length;
+      return helpers < required;
+    });
+
+    if (viable.length > 0) {
+      const scored = viable.map((hr) => {
         const required = hr.requiredCarriers ?? 2;
         const helpers = boids.filter((b) => b.memory?.[3] === hr.id).length;
-        // 0: あと1人で成立する（最優先） 1: まだ誰もいない（次点） 2: 既に足りている（避ける）
-        const priority = helpers === required - 1 ? 0 : helpers === 0 ? 1 : 2;
+        // 0: あと1人で成立する（最優先） 1: まだ誰も向かっていない（次点）
+        const priority = helpers === required - 1 ? 0 : 1;
         return { hr, priority, dist: length(hr.relPos) };
       });
       scored.sort((a, b) => a.priority - b.priority || a.dist - b.dist);
@@ -83,10 +120,10 @@ export const carryProgram: Program = (self, neighbors) => {
         const accompanied = boids.some((b) => length(sub(b.relPos, hr.relPos)) <= PHYSICS.interactRadius);
         if (accompanied) {
           committed = true;
-          carry = true;
+          carry = targetId;
           steer = steerHome(hr);
         } else {
-          carry = true;
+          carry = targetId;
           steer = zero(); // 単独: その場で待機
         }
       } else {
@@ -94,9 +131,38 @@ export const carryProgram: Program = (self, neighbors) => {
       }
     } else {
       targetId = NO_TARGET;
-      // 何も見えていなければ直進（turn=0）で探索する。ただしスポーン直後
-      // (speedがまだ小さい)だけは自分のIDに応じた固定方向を初期値にする
-      steer = self.speed > PHYSICS.maxSpeed * 0.1 ? { x: 1, y: 0 } : { x: Math.cos(self.id), y: Math.sin(self.id) };
+      // 資源が見えていない探索中: 直進を基本バイアスとしつつ、同じ小隊への
+      // 結合(cohesion、弱め)・別小隊からの分離(separation、frontier.tsと同じ
+      // 「近いほど強く」の式)を加算してブレンドする。
+      //
+      // 当初は「結合力が働いたらそれだけで方向を決める(直進を完全に無視)」
+      // 実装だったが、headless検証で2つの不具合が見つかった:
+      // (1) 相方の"今"の相対位置へ毎tick全速で向かうため、間隔が詰まると
+      //     行き過ぎて反転する追いかけっこの振動に陥り(小さい間隔では
+      //     ほぼ停止、大きい間隔でも一定範囲を往復するだけで前進しない)、
+      // (2) 何も押されていないときの完全な直進(turn=0固定)は、壁にほぼ
+      //     垂直に近い角度で衝突すると境界反射(bounceOffWalls、x成分だけ
+      //     反転)がほぼ同じ角度で反射され続け、壁際の狭い範囲に張り付いて
+      //     抜け出せなくなる(terrain.tsの局所ループ対策と同種の問題)。
+      // 対策として、結合力はCOHESION_MIN_DIST以内では働かせず(既に十分
+      // 近いため)、働くときも直進バイアスに対して弱め(COHESION_WEIGHT)に
+      // 加算するだけにして「相方の方向へ少し曲がりつつ概ね前進を続ける」
+      // 動きにした。さらに直進バイアスに毎tick小さなランダム横揺れ
+      // (EXPLORE_JITTER)を加え、決定論的な反射ループも崩す。
+      const squadId = self.memory[4];
+      const forward =
+        self.speed > PHYSICS.maxSpeed * 0.1 ? { x: 1, y: 0 } : { x: Math.cos(self.id), y: Math.sin(self.id) };
+      let combined = add(forward, { x: 0, y: (Math.random() - 0.5) * EXPLORE_JITTER });
+      for (const peer of boids) {
+        const d = length(peer.relPos);
+        if (peer.memory?.[4] === squadId) {
+          if (d > COHESION_MIN_DIST) combined = add(combined, scale(normalize(peer.relPos), COHESION_WEIGHT));
+        } else {
+          if (d < 1e-6) continue;
+          combined = add(combined, scale(normalize(scale(peer.relPos, -1)), 1 / d));
+        }
+      }
+      steer = length(combined) > 0 ? normalize(combined) : forward;
     }
   }
 

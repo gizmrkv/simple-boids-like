@@ -31,16 +31,23 @@ const EXPLORE_JITTER = 0.1; // 直進探索中に毎tick加える横揺れの大
  * 見て「あと1人で成立する資源」を最優先、「まだ誰もいない資源」を次点、
  * 「既に足りている資源」を避ける、という優先順位で対象を選ぶ。
  *
- * 【小隊による探索(結合＋分離)】この交渉は「視界内に複数の資源が同時に
- * 見えている」ことが前提だが、資源を拠点から遠く・広く散らばらせると
+ * 【小隊による探索(リーダー追従＋分離)】この交渉は「視界内に複数の資源が
+ * 同時に見えている」ことが前提だが、資源を拠点から遠く・広く散らばらせると
  * viewRadius(60)では一度に1個しか見えなくなり、離れた場所で1体が資源を
  * 見つけても交渉相手が誰も近くにいなければ孤立してしまう。この対策として、
  * 2体ずつの固定ペア（小隊、memory[4]に同じ値を持つ）を組ませ、資源が
- * 見えていない探索中はReynoldsのboidsアルゴリズムの結合(cohesion、同じ
- * 小隊のboidへ寄る)＋分離(separation、別小隊のboidから離れる、frontier.ts
- * と同じ式)を使う。小隊で固まって動けば、誰かが資源を見つけた瞬間に
- * ペアの相方もほぼ確実に近くにいるため、遠くの資源でも即座に2体で合流
- * できる。分離により3小隊が互いに違う方向へ散らばりやすくもなる。
+ * 見えていない探索中はReynoldsのboidsアルゴリズムの結合(cohesion)＋分離
+ * (separation、別小隊のboidから離れる、frontier.tsと同じ式)を使う。小隊で
+ * 固まって動けば、誰かが資源を見つけた瞬間にペアの相方もほぼ確実に近くに
+ * いるため、遠くの資源でも即座に2体で合流できる。分離により3小隊が互いに
+ * 違う方向へ散らばりやすくもなる。
+ *
+ * 結合は当初、相方同士が互いに引き合う双方向の力だったが、両者が同時に
+ * 相手の"今"の位置へ補正をかけ合うため進路が安定せずくねくね曲がったり
+ * 回り込んだりする非効率な動きになった（ユーザーがブラウザで発見）。
+ * ID比較（大きい方が優先、util.tsのisLocalMaxと同じ慣習）でリーダーを
+ * 決め、リーダーは相方から一切引かれず直進のみ、追従役だけが結合力を
+ * 受ける片方向の関係にすることで解消した。
  * 小隊idはscenario側がspawn時にmemory[4]へ書き込む（プログラム側は読むだけ）。
  */
 export const carryProgram: Program = (self, neighbors) => {
@@ -131,32 +138,35 @@ export const carryProgram: Program = (self, neighbors) => {
       }
     } else {
       targetId = NO_TARGET;
-      // 資源が見えていない探索中: 直進を基本バイアスとしつつ、同じ小隊への
-      // 結合(cohesion、弱め)・別小隊からの分離(separation、frontier.tsと同じ
-      // 「近いほど強く」の式)を加算してブレンドする。
+      // 資源が見えていない探索中: 直進を基本バイアスとしつつ、小隊内の
+      // リーダー追従(結合、片方向)・別小隊からの分離(separation、
+      // frontier.tsと同じ「近いほど強く」の式)を加算してブレンドする。
       //
-      // 当初は「結合力が働いたらそれだけで方向を決める(直進を完全に無視)」
-      // 実装だったが、headless検証で2つの不具合が見つかった:
-      // (1) 相方の"今"の相対位置へ毎tick全速で向かうため、間隔が詰まると
-      //     行き過ぎて反転する追いかけっこの振動に陥り(小さい間隔では
-      //     ほぼ停止、大きい間隔でも一定範囲を往復するだけで前進しない)、
-      // (2) 何も押されていないときの完全な直進(turn=0固定)は、壁にほぼ
-      //     垂直に近い角度で衝突すると境界反射(bounceOffWalls、x成分だけ
-      //     反転)がほぼ同じ角度で反射され続け、壁際の狭い範囲に張り付いて
-      //     抜け出せなくなる(terrain.tsの局所ループ対策と同種の問題)。
-      // 対策として、結合力はCOHESION_MIN_DIST以内では働かせず(既に十分
-      // 近いため)、働くときも直進バイアスに対して弱め(COHESION_WEIGHT)に
-      // 加算するだけにして「相方の方向へ少し曲がりつつ概ね前進を続ける」
-      // 動きにした。さらに直進バイアスに毎tick小さなランダム横揺れ
-      // (EXPLORE_JITTER)を加え、決定論的な反射ループも崩す。
+      // 当初は同じ小隊のboid同士が互いに相手へ結合しようとしていたが、
+      // 双方が同時に相手の"今"の位置へ補正をかけ合うため、進路が安定せず
+      // くねくね曲がったり2体で互いの周りを回り込んだりする非効率な動きに
+      // なることをユーザーがブラウザで見つけた。ID比較(util.tsの
+      // isLocalMaxと同じ「大きい方が優先」という慣習)でリーダーを決め、
+      // リーダーは相方から一切引かれず直進のみ、追従役だけが結合力を
+      // 受けるという片方向の関係にすることで、進路がリーダー側で安定し、
+      // 追従役はそれに沿って滑らかについていくだけになる。
+      //
+      // なお、完全な直進(turn=0固定)は壁にほぼ垂直に近い角度で衝突すると
+      // 境界反射(bounceOffWalls、x成分だけ反転)がほぼ同じ角度で反射され
+      // 続けて壁際の狭い範囲に張り付いて抜け出せなくなる不具合が
+      // headless検証で見つかっており(terrain.tsの局所ループ対策と同種)、
+      // 直進バイアスには毎tick小さなランダム横揺れ(EXPLORE_JITTER)を
+      // 加えて決定論的な反射ループを崩している。
       const squadId = self.memory[4];
+      const squadmate = boids.find((b) => b.memory?.[4] === squadId);
+      const isLeader = !squadmate || self.id > (squadmate.id ?? -Infinity);
       const forward =
         self.speed > PHYSICS.maxSpeed * 0.1 ? { x: 1, y: 0 } : { x: Math.cos(self.id), y: Math.sin(self.id) };
       let combined = add(forward, { x: 0, y: (Math.random() - 0.5) * EXPLORE_JITTER });
       for (const peer of boids) {
         const d = length(peer.relPos);
         if (peer.memory?.[4] === squadId) {
-          if (d > COHESION_MIN_DIST) combined = add(combined, scale(normalize(peer.relPos), COHESION_WEIGHT));
+          if (!isLeader && d > COHESION_MIN_DIST) combined = add(combined, scale(normalize(peer.relPos), COHESION_WEIGHT));
         } else {
           if (d < 1e-6) continue;
           combined = add(combined, scale(normalize(scale(peer.relPos, -1)), 1 / d));

@@ -1,5 +1,5 @@
 import type { NeighborView } from '../perception';
-import { length, rotate } from '../vec2';
+import { length } from '../vec2';
 import { PHYSICS } from '../world';
 
 export function closest<T extends { relPos: { x: number; y: number } }>(items: T[]): T {
@@ -15,23 +15,6 @@ export function closest<T extends { relPos: { x: number; y: number } }>(items: T
  */
 export function isLocalMax(selfId: number, intendingPeers: NeighborView[]): boolean {
   return intendingPeers.every((peer) => (peer.id ?? -Infinity) < selfId);
-}
-
-/**
- * dead reckoning（memory[0..1]に直前の既知アンカーからの推定変位を積算する
- * イディオム）を、boidごとに回転するローカル座標系のもとで正しく機能させる
- * ための共通ヘルパー。知覚(relPos等)は毎tick「その時点のheading基準」で
- * 表現されるため、蓄積してきた推定変位もこれから適用するturn分だけ
- * 逆回転させてから新しい移動量を足し込まないと、tickごとに異なる基準の
- * ベクトルを単純に足し合わせることになり推定が数学的に破綻する。
- *
- * 呼び出しは「今tickこれから返すturn/speedが決まった後」に行うこと
- * （まだ適用していない今回のturnぶんを逆回転の量として使うため）。
- */
-export function updateDeadReckoning(memory: number[], turn: number, speed: number): void {
-  const rotated = rotate({ x: memory[0], y: memory[1] }, -turn);
-  memory[0] = rotated.x + speed;
-  memory[1] = rotated.y;
 }
 
 /**

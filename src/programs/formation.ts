@@ -1,7 +1,7 @@
 import type { Program } from '../perception';
 import { length, normalize, scale, zero } from '../vec2';
 import { PHYSICS } from '../world';
-import { closest, toAction, updateDeadReckoning } from './util';
+import { closest, toAction } from './util';
 
 export const TARGET_RADIUS = 35; // 拠点から維持したい距離（viewRadius内に収まる値にしてある）
 const APPROACH_K = 0.05; // 距離誤差にどれだけ敏感に速度を出すか
@@ -35,8 +35,6 @@ export const formationProgram: Program = (self, neighbors) => {
   if (anchor) {
     self.memory[0] = -anchor.relPos.x; // 見えている間は毎tick補正し、ドリフトを消す
     self.memory[1] = -anchor.relPos.y;
-  } else {
-    updateDeadReckoning(self.memory, action.turn, action.speed);
   }
 
   return action;

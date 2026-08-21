@@ -1,12 +1,12 @@
 import type { Program } from '../perception';
 import { length, normalize, scale, zero } from '../vec2';
 import { PHYSICS } from '../world';
-import { closest, toAction, updateDeadReckoning } from './util';
+import { closest, toAction } from './util';
 
 /**
  * 資源を見つけて拠点まで運ぶ。memory[0..1] に拠点からの推定変位を
- * dead reckoning（今tick分のturn/speedの回転補正付き積算）で記録し、
- * 拠点が視界外でも戻る方向を推定できるようにしている。
+ * dead reckoning（simulate.tsが物理適用後の実測値から回転補正付きで積算する）
+ * で記録し、拠点が視界外でも戻る方向を推定できるようにしている。
  */
 export const gatherProgram: Program = (self, neighbors) => {
   const resources = neighbors.filter((n) => n.kind === 'resource' && (n.amount ?? 0) > 0);
@@ -40,8 +40,6 @@ export const gatherProgram: Program = (self, neighbors) => {
   if (drop) {
     self.memory[0] = 0;
     self.memory[1] = 0;
-  } else {
-    updateDeadReckoning(self.memory, action.turn, action.speed);
   }
 
   return {

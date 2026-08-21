@@ -1,7 +1,7 @@
 import type { Program } from '../perception';
 import { add, length, normalize, scale, zero } from '../vec2';
 import { PHYSICS } from '../world';
-import { closest, isLocalMax, toAction, updateDeadReckoning } from './util';
+import { closest, isLocalMax, toAction } from './util';
 
 const BUILD_MARGIN = 0.75; // ladder.ts/supply-line.tsと同じ値・同じ理由
 const INTENT_SLOT = 2; // memory[2]: 建設意思表示（ladder.ts/supply-line.tsと同じ）
@@ -31,14 +31,13 @@ const FUEL_RETURN_RATIO = 0.5; // relay.tsと同じ値。残燃料がこの割�
  * 働かせる。資源やアンカーが視界に入った場合の優先順位は変えていない。
  *
  * 【dead reckoningの精度についての補足】
- * 経路が分離力で曲がっても`memory[0..1]`の精度は落ちない。知覚全体が
- * boid自身のheading基準のローカル座標系で表現されるようになったため、
- * `updateDeadReckoning`（`programs/util.ts`）は毎tick「これから適用する
- * turn」ぶん蓄積値を逆回転させてから今tickの前進量を足し込む、回転補正付きの
- * 積算を行っている。これにより経路の直線・曲線に関わらず常に正確（「推定」
- * ではなく計算上ちょうど`boid.pos`の変化と一致する）。分離による寄り道の
- * 実際のコストは、同じ正味前進distanceを稼ぐのに実移動距離＝燃料をより多く
- * 使うという燃料効率の話であって、建設判断の精度には影響しない。
+ * 経路が分離力で曲がっても`memory[0..1]`の精度は落ちない。この積算は
+ * simulate.ts側（`applyDeadReckoning`）が物理適用後の実際のheading変化・
+ * 実際の移動量から回転補正付きで行うため、経路の直線・曲線はもちろん、
+ * 壁反射や地形によるすり抜け失敗があっても常に正確（「推定」ではなく計算上
+ * ちょうど`boid.pos`の変化と一致する）。分離による寄り道の実際のコストは、
+ * 同じ正味前進distanceを稼ぐのに実移動距離＝燃料をより多く使うという燃料
+ * 効率の話であって、建設判断の精度には影響しない。
  *
  * 【復路：逆dead reckoning】
  * cargo>0のときはmemory[0..1]（最後にアンカーに触れてからの推定変位）の
@@ -129,17 +128,17 @@ const FUEL_RETURN_RATIO = 0.5; // relay.tsと同じ値。残燃料がこの割�
  * 帰還モードに切り替える。アンカーへの直進は他boidの分離力による多方向からの
  * 干渉を受けなくなるため、確実に`interactRadius`内へ到達でき燃料が回復する。
  *
- * 【燃料切れ中の減速とdead reckoningのズレ（ヘッドレスで発見した不具合）】
+ * 【燃料切れ中の減速とdead reckoningのズレ（過去にヘッドレスで発見した不具合）】
  * simulate.tsは燃料切れ中、boidの実速度をPHYSICS.maxSpeed×emptyFuelSpeedRatio
  * （既定20%）にクランプする（以前は完全停止だったが、ユーザーの要求で
- * 「遅くなるが動ける」に変更された）。これに合わせずdead reckoningの更新に
- * `action.speed`（プログラムが要求した、クランプ前の速度）をそのまま使うと、
- * 「本当は0.2しか進んでいないのに1.0進んだ前提でhomeDir（家の方向）を
- * 計算し続ける」ズレが毎tick蓄積する。このズレの積分は数学的に不安定な
- * 2周期振動（`turn`が毎tick約180°反転し、正味の移動量がゼロになる）に
- * 収束することが判明した——燃料切れ中に何十tickも同じ場所で足踏みし続ける
- * 形で表面化する。dead reckoning更新の直前でエンジンと同じ速度上限を適用
- * することで解消している。
+ * 「遅くなるが動ける」に変更された）。当初はdead reckoningの更新をこの
+ * プログラム自身が担っており、`action.speed`（プログラムが要求した、
+ * クランプ前の速度）をそのまま使っていたため、「本当は0.2しか進んでいないのに
+ * 1.0進んだ前提でhomeDir（家の方向）を計算し続ける」ズレが毎tick蓄積し、
+ * 2周期振動（`turn`が毎tick約180°反転し正味の移動量がゼロになる）に陥る
+ * 不具合があった。dead reckoningの積算をsimulate.ts側（`applyDeadReckoning`）
+ * が物理適用後の実測値から行うように移した現在は、この種のズレは構造的に
+ * 起こり得ない。
  */
 export const frontierProgram: Program = (self, neighbors) => {
   const wasIntending = self.memory[INTENT_SLOT] === 1;
@@ -191,10 +190,6 @@ export const frontierProgram: Program = (self, neighbors) => {
     }
   }
 
-  // estDist/wantsToBuildの判定は、この後のdead reckoning更新より前に
-  // 「今tickの移動を反映する前のmemory」を使う必要がある（呼び出し順を
-  // 変えないこと。updateDeadReckoningを先に呼ぶと今tick分の移動が
-  // 混ざってしまい判定が変わる）。
   const nearVisibleAnchor = anchors.some((a) => length(a.relPos) < PHYSICS.maxLineLength);
   const estDist = length({ x: self.memory[0], y: self.memory[1] });
   const wantsToBuild = self.cargo === 0 && !nearVisibleAnchor && estDist > PHYSICS.maxLineLength * BUILD_MARGIN;
@@ -204,15 +199,6 @@ export const frontierProgram: Program = (self, neighbors) => {
   const build = wantsToBuild && wasIntending && isLocalMax(self.id, intendingPeers);
 
   const action = toAction(steer);
-  // dead reckoningの更新にはエンジンが実際に適用する速度を使わないと、
-  // memoryの推定がボイド自身の実際の移動とズレていく。燃料切れ中は
-  // エンジン側(simulate.ts)がspeedをPHYSICS.maxSpeed*emptyFuelSpeedRatioに
-  // クランプするため、ここでも同じ上限を適用してから積算する（そうしないと
-  // 「実際には少ししか動いていないのに、動いた前提でhomeDirを計算し続け、
-  // 数tickで180°反転を繰り返す振動に陥る」不具合が燃料切れ時に起きる—
-  // ヘッドレス検証で発見）。
-  const speedCap = self.fuel > 0 ? PHYSICS.maxSpeed : PHYSICS.maxSpeed * PHYSICS.emptyFuelSpeedRatio;
-  updateDeadReckoning(self.memory, action.turn, Math.min(action.speed, speedCap));
 
   return { ...action, harvest, drop, build };
 };

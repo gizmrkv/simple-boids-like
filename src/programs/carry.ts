@@ -1,7 +1,7 @@
 import type { NeighborView, Program } from '../perception';
 import { add, length, normalize, scale, sub, zero } from '../vec2';
 import { CARRY_RADIUS, PHYSICS } from '../world';
-import { closest, toAction, updateDeadReckoning } from './util';
+import { closest, toAction } from './util';
 
 const NO_TARGET = -1; // memory[3]の「対象なし」を表す値。資源idは常に0以上のため衝突しない
 const COHESION_MIN_DIST = CARRY_RADIUS; // これより近ければ小隊の結合力を働かせない（既に十分近いため）
@@ -206,8 +206,6 @@ export const carryProgram: Program = (self, neighbors) => {
   if (nearBase) {
     self.memory[0] = 0;
     self.memory[1] = 0;
-  } else {
-    updateDeadReckoning(self.memory, action.turn, action.speed);
   }
 
   return { ...action, carry };

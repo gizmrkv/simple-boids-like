@@ -265,16 +265,21 @@ boidは、既存の拠点または補給所から`PHYSICS.maxLineLength`以内�
 現状未使用。新しいプログラムを書くときは、この慣習に合わせるか、意図的に
 外れるならその理由をコメントに残すこと。
 
-**dead reckoningは回転補正付き。** 知覚がheading基準のローカル座標系に
-なったため（上記「ローカル座標系」参照）、`self.vel`を単純に毎tick積算する
-だけでは基準がtickごとに変わってしまい破綻する。`programs/util.ts`の
-`updateDeadReckoning(memory, turn, speed)`が、蓄積済みの推定変位を「これ
-から適用するturn」ぶん逆回転させてから今tickの前進量を足し込むことで、
-tickごとに座標系が回転しても正確な推定を維持する。呼び出しは各プログラムの
-末尾、その tickに実際に返すturn/speedが確定した後に行う（先に呼ぶと
-build判定などがまだ反映されていない今tickの移動を含んでしまい結果が
-変わるため、呼び出し順を変えないこと。詳細は`programs/frontier.ts`の
-docコメント・`programs/util.ts`のコメント参照）。
+**dead reckoningは回転補正付き。かつ更新はプログラムではなくエンジンが行う。**
+知覚がheading基準のローカル座標系になったため（上記「ローカル座標系」参照）、
+`self.vel`を単純に毎tick積算するだけでは基準がtickごとに変わってしまい破綻
+する。当初は各プログラムが自分の返すturn/speedを使って`programs/util.ts`の
+`updateDeadReckoning`を自前で呼んでいたが、これは「次tickのheadingは
+`heading+turn`通りになり、実際の移動量は指示したspeed分だけ新headingの正面
+方向にちょうど進む」という自由運動の前提を暗黙に置いており、境界での壁反射
+(`simulate.ts`の`bounceOffWalls`がプログラムの指示と無関係にheadingを書き換え、
+位置も境界にクランプする)や地形によるすり抜け失敗が起きると、その前提が
+崩れて推定が実際の位置から永久にズレたまま戻らなくなる不具合があった
+（headless検証で確認、詳細はroadmap.md参照）。現在は`simulate.ts`の
+`applyDeadReckoning`が、物理適用が全て終わった後に実際のheading変化・実際の
+移動量から逆算して`memory[0..1]`を更新する。プログラム側は「アンカーが
+視界内に見えたときにゼロ(または`-anchor.relPos`)へ矯正する」というground
+truth補正だけを担い、通常tickの積算そのものはもう呼び出さない。
 
 （余談：`frontier.ts`は当初`memory[3]`にscenario側が割り当てた個体固有の
 固定探索方位を持たせていたが、「boid自身が周囲の状況を見て進む方向を判断する」

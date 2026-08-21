@@ -1,7 +1,7 @@
 import type { Program } from '../perception';
 import { add, length, normalize, rotate, scale, zero } from '../vec2';
 import { PHYSICS } from '../world';
-import { closest, isLocalMax, updateDeadReckoning } from './util';
+import { closest, isLocalMax } from './util';
 
 const SAFE_DIST = 15; // これを下回ったら壁沿い走行(wall-following)モードに切り替える
 const WALL_TURN_STEP = 0.2; // 壁沿い走行中、1tickごとに固定方向へ回転する角度
@@ -75,16 +75,19 @@ const REMEMBERED_TARGET_Y = 6;
  * 存在に依存しない自己完結した対策になる）。
  *
  * 資源が行き先だった場合だけ追加の配慮が必要になる。拠点/補給所への帰還
- * (cargo>0・低燃料緊急帰還)はdead reckoning(memory[0..1])で常に正確に
- * 追跡できるため、エスケープで大きく迂回しても`updateDeadReckoning`を
- * 毎tick呼び続けている限り自動的に正しいままだが、資源は「今視界に入って
- * いる」前提の生の`relPos`しか持たないため、エスケープで視界(viewRadius)
- * の外に出ると見失ってしまう。そこで、エスケープ開始時点の資源の`relPos`
- * を`memory[5..6]`へ退避し、`updateDeadReckoning`と同じ回転補正を掛けつつ
- * 符号だけ逆（自分が前進した分だけ相手は近づく＝引き算）にした変換で
- * 毎tick追従させる。エスケープ終了後は、視界内に資源が見えていれば
- * そちら（ground truth）を優先し、見えていなければこの退避しておいた
- * 推定位置へ向かう。
+ * (cargo>0・低燃料緊急帰還)はdead reckoning(memory[0..1])で追跡できる。この
+ * 積算はsimulate.ts側（`applyDeadReckoning`）が物理適用後の実測値から行う
+ * ため、エスケープで大きく迂回しても常に正確なままだが、資源は「今視界に
+ * 入っている」前提の生の`relPos`しか持たないため、エスケープで視界
+ * (viewRadius)の外に出ると見失ってしまう。そこで、エスケープ開始時点の
+ * 資源の`relPos`を`memory[5..6]`へ退避し、dead reckoningと同じ回転補正を
+ * 掛けつつ符号だけ逆（自分が前進した分だけ相手は近づく＝引き算）にした
+ * 変換で毎tick追従させる。この退避スロットはsimulate.ts側では管理されない
+ * プログラム独自の状態のため、こちらはこのプログラム自身が「要求した
+ * turn/speed」で更新し続ける（壁反射時に多少ズレうるが、エスケープ中の
+ * 一時的な目印にすぎないため実害は小さい）。エスケープ終了後は、視界内に
+ * 資源が見えていればそちら（ground truth）を優先し、見えていなければこの
+ * 退避しておいた推定位置へ向かう。
  */
 export const terrainProgram: Program = (self, neighbors) => {
   const wasIntending = self.memory[INTENT_SLOT] === 1;
@@ -205,9 +208,6 @@ export const terrainProgram: Program = (self, neighbors) => {
 
   const drop = self.cargo > 0 && atAnchor;
 
-  // estDist/wantsToBuildの判定は、この後のdead reckoning更新より前に
-  // 「今tickの移動を反映する前のmemory」を使う必要がある（frontier.tsと
-  // 同じ理由。呼び出し順を変えないこと）。
   const nearVisibleAnchor = anchors.some((a) => length(a.relPos) < PHYSICS.maxLineLength);
   const estDist = length({ x: self.memory[0], y: self.memory[1] });
   const wantsToBuild = self.cargo === 0 && !nearVisibleAnchor && estDist > PHYSICS.maxLineLength * BUILD_MARGIN;
@@ -216,14 +216,15 @@ export const terrainProgram: Program = (self, neighbors) => {
   const intendingPeers = neighbors.filter((n) => n.kind === 'boid' && n.memory?.[INTENT_SLOT] === 1);
   const build = wantsToBuild && wasIntending && isLocalMax(self.id, intendingPeers);
 
-  // dead reckoning更新にはエンジンが実際に適用する速度を使う必要がある。
-  // 燃料切れ中はsimulate.tsがspeedをPHYSICS.maxSpeed*emptyFuelSpeedRatioに
-  // クランプするため、ここでも同じ上限を適用してから積算しないと「実際には
-  // 少ししか動いていないのに動いた前提でhomeDirを計算し続け、2周期振動に
-  // 陥る」不具合が起きる（frontier.tsで発見・修正済みのものと同種）。
+  // memory[0..1]のdead reckoning自体はsimulate.ts側（`applyDeadReckoning`）が
+  // 物理適用後の実測値から積算するためここでは触らないが、下のmemory[5..6]
+  // （退避した資源の推定位置）はプログラム独自の状態でエンジンの管理対象外
+  // のため、引き続きここで「エンジンが実際に適用するはずの速度」を使って
+  // 手動で積算する。燃料切れ中はsimulate.tsがspeedをPHYSICS.maxSpeed*
+  // emptyFuelSpeedRatioにクランプするため、ここでも同じ上限を適用しないと
+  // 実際の移動量とズレる。
   const speedCap = self.fuel > 0 ? PHYSICS.maxSpeed : PHYSICS.maxSpeed * PHYSICS.emptyFuelSpeedRatio;
   const appliedSpeed = Math.min(speed, speedCap);
-  updateDeadReckoning(self.memory, turn, appliedSpeed);
 
   // 退避しておいた資源の推定位置も、dead reckoningと同じ回転補正を掛けつつ
   // 符号だけ逆（自分が前進した分だけ相手は相対的に近づく）にして毎tick

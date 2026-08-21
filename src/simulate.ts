@@ -1,4 +1,4 @@
-import { add, fromPolar, length, scale, sub, zero } from './vec2';
+import { add, fromPolar, length, rotate, scale, sub, zero } from './vec2';
 import type { Vec2 } from './vec2';
 import type { Action, Program } from './perception';
 import { buildNeighbors, buildSelfView, buildWorldView } from './perception';
@@ -26,6 +26,7 @@ export function step(world: World, program: Program): void {
     // 発想。以前は完全停止だったが、ユーザーの要求で「遅くなるが動ける」に
     // 変更した）。
     const speedCap = boid.fuel > 0 ? PHYSICS.maxSpeed : PHYSICS.maxSpeed * PHYSICS.emptyFuelSpeedRatio;
+    const headingBefore = boid.heading;
     boid.heading += action.turn;
     boid.speed = Math.min(Math.max(action.speed, 0), speedCap);
 
@@ -34,6 +35,7 @@ export function step(world: World, program: Program): void {
     boid.pos = moveWithTerrain(boid.pos, vel, world.terrain);
     bounceOffWalls(boid, world);
     boid.fuel = Math.max(0, boid.fuel - length(sub(boid.pos, prevPos)) * PHYSICS.fuelBurnRate);
+    applyDeadReckoning(boid, headingBefore, prevPos);
 
     if (action.harvest && boid.cargo === 0) {
       const target = nearestWithin(boid.pos, world.resources.filter((r) => r.amount > 0), PHYSICS.interactRadius);
@@ -161,6 +163,27 @@ function bounceOffWalls(boid: World['boids'][number], world: World): void {
   if (bounced && boid.speed > 0) {
     boid.heading = Math.atan2(vel.y, vel.x);
   }
+}
+
+// memory[0..1]は「最後にアンカー(拠点/補給所)に触れた地点からの推定変位」を、
+// 現在のheading基準のローカル座標系で表現する共通の慣習（gather/formation/
+// frontier/carry/terrain.tsの全プログラムが共有）。以前はこの積算を各
+// プログラム自身がフェーズ1（物理適用より前）で「これから適用されるはずの
+// turn/speed」を仮定して行っていたが、その仮定は壁反射(bounceOffWalls)が
+// 起きると成立しなくなる。bounceOffWallsはheadingをプログラムの指示した
+// turnとは無関係にatan2で書き換え、位置も境界にクランプするため、壁に当たった
+// 瞬間からdead reckoningの推定が実際の位置と食い違ったまま戻らなくなる不具合が
+// あった（headless検証で確認、誤差は接触のたびに固定値として残り続ける）。
+// これを避けるため、積算はここ（物理適用が全て終わった後）で、実際に起きた
+// heading変化(headingBefore→boid.heading)と実際の移動量(prevPos→boid.pos)
+// から逆算する。壁反射・地形によるすり抜け失敗(moveWithTerrain)のどちらで
+// 生じた食い違いも、実測値を使う以上ここでは常に正確になる。
+function applyDeadReckoning(boid: World['boids'][number], headingBefore: number, prevPos: Vec2): void {
+  const rotationDelta = boid.heading - headingBefore;
+  const localDelta = rotate(sub(boid.pos, prevPos), -boid.heading);
+  const rotatedOld = rotate({ x: boid.memory[0], y: boid.memory[1] }, -rotationDelta);
+  boid.memory[0] = rotatedOld.x + localDelta.x;
+  boid.memory[1] = rotatedOld.y + localDelta.y;
 }
 
 function nearestWithin<T extends { pos: { x: number; y: number } }>(

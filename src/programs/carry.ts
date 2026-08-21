@@ -35,19 +35,21 @@ const EXPLORE_JITTER = 0.1; // 直進探索中に毎tick加える横揺れの大
  * 同時に見えている」ことが前提だが、資源を拠点から遠く・広く散らばらせると
  * viewRadius(60)では一度に1個しか見えなくなり、離れた場所で1体が資源を
  * 見つけても交渉相手が誰も近くにいなければ孤立してしまう。この対策として、
- * 2体ずつの固定ペア（小隊、memory[4]に同じ値を持つ）を組ませ、資源が
- * 見えていない探索中はReynoldsのboidsアルゴリズムの結合(cohesion)＋分離
- * (separation、別小隊のboidから離れる、frontier.tsと同じ式)を使う。小隊で
- * 固まって動けば、誰かが資源を見つけた瞬間にペアの相方もほぼ確実に近くに
- * いるため、遠くの資源でも即座に2体で合流できる。分離により3小隊が互いに
- * 違う方向へ散らばりやすくもなる。
+ * K体ずつ（KはrequiredCarriersと同数）の固定小隊（memory[4]に同じ値を持つ）
+ * を組ませ、資源が見えていない探索中はReynoldsのboidsアルゴリズムの結合
+ * (cohesion)＋分離(separation、別小隊のboidから離れる、frontier.tsと同じ式)
+ * を使う。小隊で固まって動けば、誰かが資源を見つけた瞬間に他のK-1体も
+ * ほぼ確実に近くにいるため、遠くの資源でも即座にK体で合流できる。分離に
+ * より各小隊が互いに違う方向へ散らばりやすくもなる。
  *
- * 結合は当初、相方同士が互いに引き合う双方向の力だったが、両者が同時に
- * 相手の"今"の位置へ補正をかけ合うため進路が安定せずくねくね曲がったり
- * 回り込んだりする非効率な動きになった（ユーザーがブラウザで発見）。
- * ID比較（大きい方が優先、util.tsのisLocalMaxと同じ慣習）でリーダーを
- * 決め、リーダーは相方から一切引かれず直進のみ、追従役だけが結合力を
- * 受ける片方向の関係にすることで解消した。
+ * 結合は当初、小隊内の全員が互いに引き合う双方向の力だったが、それぞれが
+ * 同時に相手の"今"の位置へ補正をかけ合うため進路が安定せずくねくね曲がったり
+ * 回り込んだりする非効率な動きになった（ユーザーがブラウザで発見、K=2で
+ * 最初に見つかった）。ID比較（大きい方が優先、util.tsのisLocalMaxと同じ
+ * 慣習）で小隊内のリーダーを1体だけ決め、リーダーは他の誰からも引かれず
+ * 直進のみ、リーダー以外の全員がリーダーただ1体だけに向かって結合力を
+ * 受ける片方向の関係にすることで解消した（K>=3でもフォロワー同士が互いに
+ * 引き合わないようにするため、結合対象は常にリーダー1体に限定する）。
  * 小隊idはscenario側がspawn時にmemory[4]へ書き込む（プログラム側は読むだけ）。
  */
 export const carryProgram: Program = (self, neighbors) => {
@@ -61,11 +63,14 @@ export const carryProgram: Program = (self, neighbors) => {
   let targetId = self.memory[3];
 
   // 小隊内のリーダー判定（ID比較、util.tsのisLocalMaxと同じ「大きい方が
-  // 優先」という慣習）。探索中の結合(cohesion)だけでなく、運搬中の
-  // 進行方向合わせ(alignment、下記参照)にも使う。
+  // 優先」という慣習）。小隊サイズがK>=2の場合も、視界内で見えている
+  // 小隊メンバーの中でID最大の1体をリーダーとする。探索中の結合(cohesion)
+  // だけでなく、運搬中の進行方向合わせ(alignment、下記参照)にも使う。
   const squadId = self.memory[4];
-  const squadmate = boids.find((b) => b.memory?.[4] === squadId);
-  const isLeader = !squadmate || self.id > (squadmate.id ?? -Infinity);
+  const squadmates = boids.filter((b) => b.memory?.[4] === squadId);
+  const leader =
+    squadmates.length > 0 ? squadmates.reduce((a, b) => ((a.id ?? -Infinity) > (b.id ?? -Infinity) ? a : b)) : undefined;
+  const isLeader = !leader || self.id > (leader.id ?? -Infinity);
 
   const steerHome = (hr: NeighborView) =>
     bases.length > 0
@@ -88,23 +93,24 @@ export const carryProgram: Program = (self, neighbors) => {
 
     if (hr && length(hr.relPos) <= CARRY_RADIUS && stillStaffed) {
       carry = targetId;
-      if (isLeader || !squadmate) {
+      if (isLeader || !leader) {
         // 運搬中: 「拠点そのもの」ではなく「資源から見た拠点の方向」を目指す。
         // boid自身が先に拠点へ着いてしまうと(資源はまだ手前)、boid→拠点の
         // ベクトルがほぼゼロになり停止してしまう不具合をheadless検証で発見した。
         steer = steerHome(hr);
       } else {
         // 追従役: 拠点方向は自分では計算せず、リーダーの"今"の実際の移動
-        // 方向に合わせる(alignment)。当初は運搬中も両者が各自dead
-        // reckoningで拠点方向を推定していたが、2体は別々の経路でここまで
-        // 来ているため推定がズレやすく、互いに違う方向へ資源を引っ張ろうと
-        // した結果、資源から離れては近づいてを繰り返す不具合をユーザーが
-        // ブラウザで発見した。追従役がリーダーの実速度に合わせれば、
-        // 拠点が視界外でも常に同じ方向を目指せる。squadmate.relVelは
+        // 方向に合わせる(alignment)。当初は運搬中も各自dead reckoningで
+        // 拠点方向を推定していたが、それぞれ別々の経路でここまで来ているため
+        // 推定がズレやすく、互いに違う方向へ資源を引っ張ろうとした結果、
+        // 資源から離れては近づいてを繰り返す不具合をユーザーがブラウザで
+        // 発見した。追従役がリーダーの実速度に合わせれば、拠点が視界外でも
+        // 全員が常に同じ方向を目指せる（K>=3でも、追従役全員が同じ1体の
+        // リーダーに合わせるため方向がばらけない）。leader.relVelは
         // 「相手の実速度 - 自分の実速度」なので、自分の実速度(自分の
         // ローカル座標系では{self.speed, 0})を足し戻すとリーダーの実速度
         // そのものになる。
-        const leaderVel = add(squadmate.relVel, { x: self.speed, y: 0 });
+        const leaderVel = add(leader.relVel, { x: self.speed, y: 0 });
         steer = length(leaderVel) > 1e-6 ? normalize(leaderVel) : steerHome(hr);
       }
     } else {
@@ -134,7 +140,7 @@ export const carryProgram: Program = (self, neighbors) => {
         const helpers = boids.filter((b) => b.memory?.[3] === hr.id).length;
         // 0: あと1人で成立する（最優先） 1: まだ誰も向かっていない（次点）
         const priority = helpers === required - 1 ? 0 : 1;
-        return { hr, priority, dist: length(hr.relPos) };
+        return { hr, priority, dist: length(hr.relPos), required };
       });
       scored.sort((a, b) => a.priority - b.priority || a.dist - b.dist);
       const chosen = scored[0];
@@ -142,18 +148,19 @@ export const carryProgram: Program = (self, neighbors) => {
       targetId = hr.id ?? NO_TARGET;
 
       if (chosen.dist <= PHYSICS.interactRadius) {
-        // 未合流・狭い半径内: もう1体が同じ資源のinteractRadius内にいれば合流を
-        // 確定して運搬開始、いなければその場で待機して2体目を待つ。他boidの
-        // relPosとheavyのrelPosは同じtick・同じローカル座標系なので、差の長さが
-        // そのまま2者間の実際の距離になる。
-        const accompanied = boids.some((b) => length(sub(b.relPos, hr.relPos)) <= PHYSICS.interactRadius);
-        if (accompanied) {
+        // 未合流・狭い半径内: 自分を含めてrequiredCarriers体が同じ資源の
+        // interactRadius内に揃っていれば合流を確定して運搬開始、足りなければ
+        // その場で待機して残りが揃うのを待つ。他boidのrelPosとheavyのrelPosは
+        // 同じtick・同じローカル座標系なので、差の長さがそのまま2者間の
+        // 実際の距離になる。
+        const nearbyCount = 1 + boids.filter((b) => length(sub(b.relPos, hr.relPos)) <= PHYSICS.interactRadius).length;
+        if (nearbyCount >= chosen.required) {
           committed = true;
           carry = targetId;
           steer = steerHome(hr);
         } else {
           carry = targetId;
-          steer = zero(); // 単独: その場で待機
+          steer = zero(); // 人数不足: その場で待機
         }
       } else {
         steer = normalize(hr.relPos);
@@ -168,10 +175,12 @@ export const carryProgram: Program = (self, neighbors) => {
       // 双方が同時に相手の"今"の位置へ補正をかけ合うため、進路が安定せず
       // くねくね曲がったり2体で互いの周りを回り込んだりする非効率な動きに
       // なることをユーザーがブラウザで見つけた。ID比較(util.tsの
-      // isLocalMaxと同じ「大きい方が優先」という慣習)でリーダーを決め、
-      // リーダーは相方から一切引かれず直進のみ、追従役だけが結合力を
-      // 受けるという片方向の関係にすることで、進路がリーダー側で安定し、
-      // 追従役はそれに沿って滑らかについていくだけになる。
+      // isLocalMaxと同じ「大きい方が優先」という慣習)でリーダーを1体だけ
+      // 決め、リーダーは誰からも引かれず直進のみ、リーダー以外の全員が
+      // リーダーただ1体だけへ向かって結合力を受けるという片方向の関係に
+      // することで、進路がリーダー側で安定し、追従役はそれに沿って滑らかに
+      // ついていくだけになる（小隊がK>=3でも、結合対象を常にリーダー1体に
+      // 限定することでフォロワー同士の相互追跡を避けている）。
       //
       // なお、完全な直進(turn=0固定)は壁にほぼ垂直に近い角度で衝突すると
       // 境界反射(bounceOffWalls、x成分だけ反転)がほぼ同じ角度で反射され
@@ -182,14 +191,14 @@ export const carryProgram: Program = (self, neighbors) => {
       const forward =
         self.speed > PHYSICS.maxSpeed * 0.1 ? { x: 1, y: 0 } : { x: Math.cos(self.id), y: Math.sin(self.id) };
       let combined = add(forward, { x: 0, y: (Math.random() - 0.5) * EXPLORE_JITTER });
+      if (!isLeader && leader && length(leader.relPos) > COHESION_MIN_DIST) {
+        combined = add(combined, scale(normalize(leader.relPos), COHESION_WEIGHT));
+      }
       for (const peer of boids) {
+        if (peer.memory?.[4] === squadId) continue; // 同じ小隊: 結合はリーダーへのみ(上記)、分離は働かせない
         const d = length(peer.relPos);
-        if (peer.memory?.[4] === squadId) {
-          if (!isLeader && d > COHESION_MIN_DIST) combined = add(combined, scale(normalize(peer.relPos), COHESION_WEIGHT));
-        } else {
-          if (d < 1e-6) continue;
-          combined = add(combined, scale(normalize(scale(peer.relPos, -1)), 1 / d));
-        }
+        if (d < 1e-6) continue;
+        combined = add(combined, scale(normalize(scale(peer.relPos, -1)), 1 / d));
       }
       steer = length(combined) > 0 ? normalize(combined) : forward;
     }

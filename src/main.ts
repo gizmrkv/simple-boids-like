@@ -2,6 +2,7 @@ import './style.css';
 import { render } from './render';
 import type { Scenario } from './scenario';
 import { carryScenario } from './scenarios/carry';
+import { carryTrioScenario } from './scenarios/carry-trio';
 import { carryWideScenario } from './scenarios/carry-wide';
 import { formationScenario } from './scenarios/formation';
 import { frontierScenario } from './scenarios/frontier';
@@ -17,6 +18,7 @@ const SCENARIOS: Scenario[] = [
   terrainScenario,
   carryScenario,
   carryWideScenario,
+  carryTrioScenario,
 ];
 
 const controls = document.querySelector<HTMLDivElement>('#controls')!;

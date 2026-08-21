@@ -60,6 +60,13 @@ export const carryProgram: Program = (self, neighbors) => {
   let committed = self.memory[2] > 0;
   let targetId = self.memory[3];
 
+  // 小隊内のリーダー判定（ID比較、util.tsのisLocalMaxと同じ「大きい方が
+  // 優先」という慣習）。探索中の結合(cohesion)だけでなく、運搬中の
+  // 進行方向合わせ(alignment、下記参照)にも使う。
+  const squadId = self.memory[4];
+  const squadmate = boids.find((b) => b.memory?.[4] === squadId);
+  const isLeader = !squadmate || self.id > (squadmate.id ?? -Infinity);
+
   const steerHome = (hr: NeighborView) =>
     bases.length > 0
       ? normalize(sub(closest(bases).relPos, hr.relPos))
@@ -80,11 +87,26 @@ export const carryProgram: Program = (self, neighbors) => {
     const stillStaffed = hr !== undefined && (nearbyHelpers ?? 0) + 1 >= required;
 
     if (hr && length(hr.relPos) <= CARRY_RADIUS && stillStaffed) {
-      // 運搬中: 「拠点そのもの」ではなく「資源から見た拠点の方向」を目指す。
-      // boid自身が先に拠点へ着いてしまうと(資源はまだ手前)、boid→拠点の
-      // ベクトルがほぼゼロになり停止してしまう不具合をheadless検証で発見した。
       carry = targetId;
-      steer = steerHome(hr);
+      if (isLeader || !squadmate) {
+        // 運搬中: 「拠点そのもの」ではなく「資源から見た拠点の方向」を目指す。
+        // boid自身が先に拠点へ着いてしまうと(資源はまだ手前)、boid→拠点の
+        // ベクトルがほぼゼロになり停止してしまう不具合をheadless検証で発見した。
+        steer = steerHome(hr);
+      } else {
+        // 追従役: 拠点方向は自分では計算せず、リーダーの"今"の実際の移動
+        // 方向に合わせる(alignment)。当初は運搬中も両者が各自dead
+        // reckoningで拠点方向を推定していたが、2体は別々の経路でここまで
+        // 来ているため推定がズレやすく、互いに違う方向へ資源を引っ張ろうと
+        // した結果、資源から離れては近づいてを繰り返す不具合をユーザーが
+        // ブラウザで発見した。追従役がリーダーの実速度に合わせれば、
+        // 拠点が視界外でも常に同じ方向を目指せる。squadmate.relVelは
+        // 「相手の実速度 - 自分の実速度」なので、自分の実速度(自分の
+        // ローカル座標系では{self.speed, 0})を足し戻すとリーダーの実速度
+        // そのものになる。
+        const leaderVel = add(squadmate.relVel, { x: self.speed, y: 0 });
+        steer = length(leaderVel) > 1e-6 ? normalize(leaderVel) : steerHome(hr);
+      }
     } else {
       // 運搬中だった資源を見失った(離れすぎた・搬入済みで消滅・相方が離脱):
       // 諦めて次tickに合流先を選び直す
@@ -157,9 +179,6 @@ export const carryProgram: Program = (self, neighbors) => {
       // headless検証で見つかっており(terrain.tsの局所ループ対策と同種)、
       // 直進バイアスには毎tick小さなランダム横揺れ(EXPLORE_JITTER)を
       // 加えて決定論的な反射ループを崩している。
-      const squadId = self.memory[4];
-      const squadmate = boids.find((b) => b.memory?.[4] === squadId);
-      const isLeader = !squadmate || self.id > (squadmate.id ?? -Infinity);
       const forward =
         self.speed > PHYSICS.maxSpeed * 0.1 ? { x: 1, y: 0 } : { x: Math.cos(self.id), y: Math.sin(self.id) };
       let combined = add(forward, { x: 0, y: (Math.random() - 0.5) * EXPLORE_JITTER });
